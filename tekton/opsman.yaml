@@ -1,0 +1,170 @@
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: user-provided-1
+spec:
+  params:
+    - name: opsman_version
+      type: string
+      description: The opsmanager version
+      default: 3.0
+    - name: art_id
+      type: string
+    - name: meta_ref
+      type: string
+  steps:
+    - name: user-1-1
+      image: ubuntu
+      script: |
+        echo "deploying OpsManager"
+        echo "reading required argument"
+        echo "## opsman_version $(params.opsman_version)"
+        echo "## art_id $(params.art_id)"
+        echo "## art_name $(params.art_name)"
+        echo "## meta_ref $(params.meta_ref)"
+        echo "deploying"
+        echo "done"
+    - name: user-1-2
+      image: ubuntu
+      script: |
+        echo "Regisering DNS"
+        echo "## meta_ref $(params.meta_ref)"
+        echo "Done"
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: user-provided-2
+spec:
+  results:
+    - name: art_name
+      description: the name of the art
+      type: string
+    - name: url
+      description: the url of the opsmanager
+      type: string
+    - name: username
+      description: the username to login
+    - name: password
+      description: the password
+
+  params:
+    - name: opsman_version
+      type: string
+      description: The opsmanager version
+      default: 3.0
+    - name: art_id
+      type: string
+    - name: art_name
+      type: string
+    - name: meta_ref
+      type: string
+  steps:
+    - name: user-2-1
+      image: ubuntu
+      script: |
+        echo "Smoke test"
+        echo "reading required argument"
+        echo "testing"
+        echo "done"
+    - name: render-output
+      image: ubuntu
+      script: |
+        echo "redering output"
+        echo "$(params.art_name)" | tee $(results.art_name.path)
+        echo "https://pcf.$(params.art_name).cf-app.com" | tee $(results.url.path)
+        echo "pivotalcf" | tee $(results.username.path)
+        echo "secret" | tee $(results.password.path)
+        echo "Done"
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: finalize
+spec:
+  params:
+    - name: art_name
+      description: the name of the art
+      type: string
+    - name: url
+      description: the url of the opsmanager
+      type: string
+    - name: username
+      description: the username to login
+    - name: password
+      description: the password
+    - name: metadata
+      description: the metadata
+  steps:
+    - name: finalize
+      image: ubuntu
+      script: |
+        echo "collecting results"
+        echo "send to train API with:"
+        echo "art_name = $(params.art_name)"
+        echo "url = $(params.url)"
+        echo "username = $(params.username)"
+        echo "password = $(params.password)"
+        echo "the whole metadata: $(params.metadata)"
+        echo "Done"
+
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: art-deployment
+spec:
+  params:
+    - name: opsman_version
+      type: string
+  tasks:
+    - name: init
+      taskRef:
+        name: art-init
+    - name: user-provided-1
+      taskRef:
+        name: user-provided-1
+      runAfter:
+        - init
+      params:
+        - name: opsman_version
+          value: "3.0"
+        - name: art_id
+          value: $(tasks.init.results.art_id)
+        - name: art_name
+          value: $(tasks.init.results.art_name)
+        - name: meta_ref
+          value: $(tasks.init.results.meta_ref)
+    - name: user-provided-2
+      taskRef:
+        name: user-provided-2
+      runAfter:
+        - user-provided-1
+      params:
+        - name: opsman_version
+          value: $(params.opsman_version)
+        - name: art_id
+          value: $(tasks.init.results.art_id)
+        - name: art_name
+          value: $(tasks.init.results.art_name)
+        - name: meta_ref
+          value: $(tasks.init.results.meta_ref)
+    - name: finalize
+      taskRef:
+        name: finalize
+      runAfter:
+        - user-provided-2
+      params:
+        - name: art_name
+          value: $(tasks.user-provided-2.results.art_name)
+        - name: url
+          value: $(tasks.user-provided-2.results.url)
+        - name: username
+          value: $(tasks.user-provided-2.results.username)
+        - name: password
+          value: $(tasks.user-provided-2.results.password)
+        - name: metadata
+          value: $(tasks.user-provided-2.results)

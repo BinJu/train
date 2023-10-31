@@ -1,0 +1,86 @@
+---
+apiVersion: tekton.dev/v1 # or tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: art-init
+spec:
+  results:
+    - name: art_id
+      description: The artifact id
+    - name: art_name
+      description: The artifact name
+    - name: meta_ref
+      description: Meta data that the pipeline references
+  steps:
+    - name: init
+      image: ubuntu
+      script: |
+        echo "Initializing the artifact deployment ..."
+        echo "pulling data from train API..."
+        echo "prepair configuration data..."
+        echo "123456" | tee $(results.art_id.path)
+        echo "tokyo-123456" | tee $(results.art_name.path)
+        echo "{}" | tee $(results.meta_ref.path)
+        echo "Done"
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: finalize
+spec:
+  params:
+    - name: art_name
+      description: the name of the art
+      type: string
+    - name: url
+      description: the url of the opsmanager
+      type: string
+    - name: username
+      description: the username to login
+    - name: password
+      description: the password
+    - name: metadata
+      description: the metadata
+  steps:
+    - name: finalize
+      image: ubuntu
+      script: |
+        echo "collecting results"
+        echo "send to train API with:"
+        echo "art_name = $(params.art_name)"
+        echo "url = $(params.url)"
+        echo "username = $(params.username)"
+        echo "password = $(params.password)"
+        echo "the whole metadata: $(params.metadata)"
+        echo "Done"
+
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: art-deployment
+spec:
+  params:
+    - name: opsman_version
+      type: string
+  tasks:
+    - name: init
+      taskRef:
+        name: art-init
+    - name: finalize
+      taskRef:
+        name: finalize
+      runAfter:
+        - user-provided-2
+      params:
+        - name: art_name
+          value: $(tasks.user-provided-2.results.art_name)
+        - name: url
+          value: $(tasks.user-provided-2.results.url)
+        - name: username
+          value: $(tasks.user-provided-2.results.username)
+        - name: password
+          value: $(tasks.user-provided-2.results.password)
+        - name: metadata
+          value: $(tasks.user-provided-2.results)
