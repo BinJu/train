@@ -133,8 +133,23 @@ impl <'a>Artifact<'a> {
     pub fn destroy(&self) -> error::Result<()> {
         Ok(())
     }
+
+    pub fn save(&self) -> error::Result<()> {
+        Ok(())
+    }
+    pub fn load(art_id: &'a str) ->  error::Result<Box::<Self>> {
+        Ok(Box::new(Self::new(art_id, 1, 1)))
+
+    }
 }
 
+impl <'a>ArtifactRequest<'a> {
+    pub fn validate(&self) -> error::Result<()> {
+        //TODO: Need to validate each of the items from the customer. Including: accounts, secrets,
+        //art_refs, params, tasks, results for both of the creation and deletion.
+        Ok(())
+    }
+}
 impl <'a> From<ArtifactRequest<'a>> for Artifact<'a> {
     fn from(value: ArtifactRequest<'a>) -> Self {
         Artifact {
@@ -322,7 +337,7 @@ mod tests {
         let pipelines = pipeline::list("train").expect("failed to list the pipelines");
         assert!(pipelines.len() >= 1);
         assert_eq!(pipelines[0], "build-opsman-warn-ma20");
-        std::thread::sleep(time::Duration::from_secs(1));
+        std::thread::sleep(time::Duration::from_millis(20));
         let logs = pipeline::logs(&run_name, "train").expect("Failed to acquire logs");
         println!("### logs: \n{}", logs);
         assert!(logs.contains("John"));
