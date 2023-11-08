@@ -1,11 +1,13 @@
 pub mod manifest;
 pub mod pipeline;
+pub mod artifact_dao;
 
 use crate::error;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
 const DEFAULT_NAMESPACE: &str = "train";
+pub const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1";
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "'de: 'a"))]
@@ -16,7 +18,7 @@ pub struct ArtifactRequest<'a> {
     #[serde(default)]
     pub target: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub refs: Option<Vec<ArtifactRef<'a>>>,
+    pub refs: Option<Vec<ArtifactRef>>,
     pub build: DeployUnit<'a>,
     pub clean: DeployUnit<'a>
 }
@@ -29,35 +31,43 @@ pub struct DeployUnit<'a> {
     pub tasks: Vec<manifest::TaskManifest<'a>>,
     pub results: Option<Vec<manifest::ParamValue<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub secrets: Option<Vec<SecretRef<'a>>>,
+    pub secrets: Option<Vec<SecretRef>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub accounts: Option<Vec<AccountRef<'a>>>
+    pub accounts: Option<Vec<AccountRef>>
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct SecretRef<'a> {
-    pub name: &'a str
+pub struct SecretRef {
+    pub name: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct AccountRef<'a> {
-    pub name: &'a str
+pub struct AccountRef {
+    pub name: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ArtifactRef<'a> {
-    pub name: &'a str
+pub struct ArtifactRef {
+    pub name: String
 }
 
-pub struct Artifact<'a> {
-    pub id: &'a str,
-    pub tags: HashMap<&'a str, &'a str>,
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct Artifact {
+    pub id: String,
+    pub tags: HashMap<String, String>,
     pub total: u32,
-    pub in_stock: Vec<Box::<Instance<'a>>>,
     pub target: u32,
-    pub build: Rollout<'a>,
-    pub clean: Rollout<'a>,
-    pub art_refs: Vec<&'a Self>,
+    pub build: Rollout,
+    pub clean: Rollout
+}
+
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct Rollout {
+    pub name: String,
+    pub accounts: Vec<AccountRef>,
+    pub secrets: Vec<SecretRef>,
+    pub art_refs: Vec<ArtifactRef>,
+    pub manifest: String
 }
 
 pub struct Instance<'a> {
@@ -79,48 +89,32 @@ pub enum InstanceStatus {
     Done
 }
 
-pub struct Rollout<'a> {
-    pub name: String,
-    pub accounts: Vec<AccountRef<'a>>,
-    pub secrets: Vec<SecretRef<'a>>,
-    pub art_refs: Vec<ArtifactRef<'a>>,
-    pub params: Vec<manifest::Param<'a>>,
-    pub tasks: Vec<manifest::TaskManifest<'a>>,
-    pub results: Vec<manifest::ParamValue<'a>>
-}
-
-impl <'a>Artifact<'a> {
-    pub fn new(art_id: &'a str, total: u32, target: u32) -> Self {
+impl Artifact {
+    pub fn new(art_id: &str, total: u32, target: u32) -> Self {
         Artifact {
-            id: art_id,
+            id: art_id.to_owned(),
             tags: HashMap::new(),
             total,
             target,
-            in_stock: Vec::new(),
             build: Rollout {
                 name: "build-".to_owned() + art_id,
                 accounts: Vec::new(),
                 secrets: Vec::new(),
                 art_refs: Vec::new(),
-                params: Vec::new(),
-                tasks: Vec::new(),
-                results: Vec::new()
+                manifest: String::new()
             },
             clean: Rollout {
                 name: "clean-".to_owned() + art_id,
                 accounts: Vec::new(),
                 secrets: Vec::new(),
                 art_refs: Vec::new(),
-                params: Vec::new(),
-                tasks: Vec::new(),
-                results: Vec::new()
-            },
-            art_refs: Vec::new()
+                manifest: String::new()
+            }
         }
     }
 
-    pub fn rollout(&'a mut self) -> error::Result<usize> {
-        let diff = self.target as i32 - self.in_stock.len() as i32;
+    pub fn rollout(&mut self) -> error::Result<usize> {
+        /*let diff = self.target as i32 - self.in_stock.len() as i32;
         let instances = if diff > 0 { //build
             self.build.run(diff)?
         } else {
@@ -128,19 +122,14 @@ impl <'a>Artifact<'a> {
         };
         self.in_stock.extend(instances);
         Ok(self.in_stock.len())
+        */
+        Ok(0)
     }
 
     pub fn destroy(&self) -> error::Result<()> {
         Ok(())
     }
 
-    pub fn save(&self) -> error::Result<()> {
-        Ok(())
-    }
-    pub fn load(art_id: &'a str) ->  error::Result<Box::<Self>> {
-        Ok(Box::new(Self::new(art_id, 1, 1)))
-
-    }
 }
 
 impl <'a>ArtifactRequest<'a> {
@@ -150,39 +139,41 @@ impl <'a>ArtifactRequest<'a> {
         Ok(())
     }
 }
-impl <'a> From<ArtifactRequest<'a>> for Artifact<'a> {
-    fn from(value: ArtifactRequest<'a>) -> Self {
-        Artifact {
-            id: value.name,
+impl <'a> TryFrom<ArtifactRequest<'a>> for Artifact {
+    type Error = error::GeneralError;
+    fn try_from(value: ArtifactRequest<'a>) -> Result<Self, Self::Error> {
+        let build_name = "build-".to_owned() + value.name;
+        let manifest_build = to_manifest_with_optional_args(&build_name, value.build.tasks, value.build.params, value.build.results);
+        let manifest_build_yaml = manifest_build.to_yaml()?;
+
+        let clean_name = "clean-".to_owned() + value.name;
+        let manifest_clean = to_manifest_with_optional_args(&clean_name, value.clean.tasks, value.clean.params, value.clean.results);
+        let manifest_clean_yaml = manifest_clean.to_yaml()?;
+        Ok(Artifact {
+            id: value.name.to_owned(),
             tags: HashMap::new(),
             total: value.total,
             target: value.target,
-            in_stock: Vec::new(),
-            art_refs: Vec::new(),
             build: Rollout {
                 name: "build-".to_owned() + value.name,
                 accounts: value.build.accounts.unwrap_or(Vec::new()),
                 secrets: value.build.secrets.unwrap_or(Vec::new()),
                 art_refs: value.refs.unwrap_or(Vec::new()),
-                params: value.build.params.unwrap_or(Vec::new()),
-                tasks: value.build.tasks,
-                results: value.build.results.unwrap_or(Vec::new())
+                manifest: manifest_build_yaml
             },
             clean: Rollout {
                 name: "clean-".to_owned() + value.name,
                 accounts: Vec::new(),
                 secrets: Vec::new(),
                 art_refs: Vec::new(),
-                params: value.clean.params.unwrap_or(Vec::new()),
-                tasks: value.clean.tasks,
-                results: value.clean.results.unwrap_or(Vec::new())
+                manifest: manifest_clean_yaml
             }
-        }
+        })
     }
 }
 
-impl <'a>Rollout<'a> {
-    pub fn run(&'a mut self, copies: i32) -> error::Result<Vec<Box<Instance<'a>>>> {
+impl Rollout {
+    pub fn run(&mut self, copies: i32) -> error::Result<Vec<Box<Instance>>> {
         let mut result = Vec::new();
         let secrets = self.prepare_secrets()?;
         Self::apply_secrets(&secrets)?;
@@ -190,10 +181,7 @@ impl <'a>Rollout<'a> {
         // Check the ArtRefs 
         // Apply secret
         // Make sure the manifest is updated
-        let rollout: &Rollout = self;
-        let manifest = manifest::Manifest::from(rollout);
-        let manifest_yaml = manifest.to_yaml()?;
-        pipeline::apply(manifest_yaml, DEFAULT_NAMESPACE)?;
+        pipeline::apply(self.manifest.clone(), DEFAULT_NAMESPACE)?;
         for _i in 0..copies {
             // Prepare accounts
             let accounts = self.prepare_accounts()?;
@@ -202,7 +190,7 @@ impl <'a>Rollout<'a> {
             let refs = self.prepare_refs()?;
             Self::apply_secrets(&refs)?;
             let params: Vec<&str> = vec!["art_id=opsman", "inst_id=warn-ma20"];
-            let run_name = pipeline::run(&rollout.name, DEFAULT_NAMESPACE, params)?;
+            let run_name = pipeline::run(&self.name, DEFAULT_NAMESPACE, params)?;
             result.push(Box::new(Instance{
                 id: "warn-ma20",
                 art_id: &self.name,
@@ -246,55 +234,59 @@ impl <'a>Rollout<'a> {
     }
 }
 
-impl <'a>From<&'a Rollout<'a>> for manifest::Manifest<'a> {
-    fn from(value: &'a Rollout<'a>) -> manifest::Manifest<'a> {
-        let task_refs: Vec<manifest::TaskDef> = value.tasks.iter().map(|v|manifest::TaskDef{name: v.name.clone(), task_ref: manifest::TaskRef{name: v.name.clone()}, run_after: v.run_after.clone(), params: v.param_values.clone()}).collect();
-        let mut tasks = Vec::<manifest::Task>::new();
-        for task_def in &value.tasks {
-            tasks.push(manifest::Task{
-                api_version: manifest::TEKTON_DEV_V1,
-                kind: "Task",
-                metadata: manifest::Metadata {
-                    name: task_def.name
-                },
-                spec: task_def.spec.clone()
-            })
-        }
-        manifest::Manifest {
-            pipeline: manifest::Pipeline {
-                api_version: "tekton.dev/v1",
-                kind: "Pipeline",
-                metadata: manifest::Metadata { name: &value.name},
-                spec: manifest::PipelineSpec {
-                    params: if value.params.len() > 0 { Some(value.params.clone())} else {None},
-                    results: if value.results.len() > 0 { Some(value.results.clone())} else {None},
-                    tasks: task_refs
-                }
+fn to_manifest_with_optional_args<'a>(name: &'a str, tasks: Vec<manifest::TaskManifest<'a>>, params: Option<Vec<manifest::Param<'a>>>, results: Option<Vec<manifest::ParamValue<'a>>>) -> manifest::Manifest<'a> {
+    let params = params.unwrap_or(Vec::new());
+    let results = results.unwrap_or(Vec::new());
+    to_manifest(name, tasks, params, results)
+}
+
+fn to_manifest<'a>(name: &'a str, tasks: Vec<manifest::TaskManifest<'a>>, params: Vec<manifest::Param<'a>>, results: Vec<manifest::ParamValue<'a>>) -> manifest::Manifest<'a> {
+    let task_refs: Vec<manifest::TaskDef> = tasks.iter().map(|v|manifest::TaskDef{name: v.name.clone(), task_ref: manifest::TaskRef{name: v.name.clone()}, run_after: v.run_after.clone(), params: v.param_values.clone()}).collect();
+    let mut task_defs = Vec::<manifest::Task>::new();
+    for task_def in tasks {
+        task_defs.push(manifest::Task{
+            api_version: manifest::TEKTON_DEV_V1,
+            kind: "Task",
+            metadata: manifest::Metadata {
+                name: task_def.name
             },
-            tasks
-        }
+            spec: task_def.spec.clone()
+        })
+    }
+    manifest::Manifest {
+        pipeline: manifest::Pipeline {
+            api_version: "tekton.dev/v1",
+            kind: "Pipeline",
+            metadata: manifest::Metadata { name },
+            spec: manifest::PipelineSpec {
+                params: if params.len() > 0 { Some(params.clone())} else {None},
+                results: if results.len() > 0 { Some(results.clone())} else {None},
+                tasks: task_refs
+            }
+        },
+        tasks: task_defs
     }
 }
 
-impl <'a> ArtifactRef<'a> {
-    pub fn get_data(&self) -> Option<Vec<manifest::ParamValue<'a>>> {
+impl ArtifactRef {
+    pub fn get_data(&self) -> Option<Vec<manifest::ParamValue>> {
         Some(vec![manifest::ParamValue{name: "abckl", value: "value1"}]) //TODO: How to save the results
     }
 }
 
-impl <'a> SecretRef<'a> {
-    pub fn get_data(&self) -> Option<manifest::Secret<'a>> {
-        Some(manifest::Secret::new(self.name, DEFAULT_NAMESPACE, HashMap::from([("k1", "v1")])))
+impl SecretRef {
+    pub fn get_data(&self) -> Option<manifest::Secret> {
+        Some(manifest::Secret::new(&self.name, DEFAULT_NAMESPACE, HashMap::from([("k1", "v1")])))
     }
 }
 
-impl <'a> AccountRef<'a> {
-    pub fn get_data(&self) -> Option<manifest::Secret<'a>> {
-        Some(manifest::Secret::new(self.name, DEFAULT_NAMESPACE, HashMap::from([("k1", "v1")])))
+impl AccountRef {
+    pub fn get_data(&self) -> Option<manifest::Secret> {
+        Some(manifest::Secret::new(&self.name, DEFAULT_NAMESPACE, HashMap::from([("k1", "v1")])))
     }
 }
 
-pub fn handle_artifact_creation<'a>(artifact: Artifact<'a>) -> error::Result<String> {
+pub fn handle_artifact_creation<'a>(artifact: Artifact) -> error::Result<String> {
     //TODO: secrets must be set to the kubenetes cluster for the user. format: secret_userid
     //TODO: accounts must be set as param/env to the tekton pipeline.
     println!("Creating the artifact with: id={}", artifact.id);
@@ -327,13 +319,11 @@ mod tests {
         let mut request: ArtifactRequest = serde_json::from_str(request).expect("Failed to deserialize the payload to ArtifactRequest object");
         request.name = "opsman-warn-ma20";
 
-        let artifact = Artifact::from(request);
-        let manifest = manifest::Manifest::from(&artifact.build);
-        // let manifest = manifest::art_system_tasks(manifest).expect("Failed to apply system tasks to the RolloutRquest");
-        let manifest_yaml = manifest.to_yaml().expect("Fail to serialize to manifest yaml");
+        let artifact = Artifact::try_from(request).expect("Failed to deserialize artifact from artifact request");
+        let manifest_yaml = artifact.build.manifest;
         pipeline::apply(manifest_yaml, DEFAULT_NAMESPACE).expect("Fail to apply manifest to kubernetets");
         let params: Vec<&str> = vec!["art_id=opsman", "inst_id=warn-ma20"];
-        let run_name = pipeline::run(&manifest.pipeline.metadata.name, "train", params).unwrap();
+        let run_name = pipeline::run(&artifact.build.name, "train", params).unwrap();
         let pipelines = pipeline::list("train").expect("failed to list the pipelines");
         assert!(pipelines.len() >= 1);
         assert_eq!(pipelines[0], "build-opsman-warn-ma20");

@@ -4,6 +4,7 @@ pub type Result<T> = std::result::Result<T, GeneralError>;
 
 #[derive(Debug)]
 pub enum GeneralError {
+    Error(String),
     IoError(std::io::Error),
     ProcessError(String),
     PipelineError(String),
@@ -12,6 +13,10 @@ pub enum GeneralError {
     SerdeYamlError(serde_yaml::Error)
 }
 
+#[inline]
+pub fn error(msg: &str) -> GeneralError {
+    GeneralError::Error(msg.to_owned())
+}
 pub fn new_process_error<E: AsRef<str>>(err: E) -> GeneralError {
     let error_info: String = err.as_ref().to_string();
     GeneralError::ProcessError(error_info)
@@ -48,9 +53,22 @@ impl From<redis::RedisError> for GeneralError {
     }
 }
 
+impl From<String> for GeneralError {
+    fn from(value: String) -> Self {
+        GeneralError::Error(value)
+    }
+}
+
+impl From<&str> for GeneralError {
+    fn from(value: &str) -> Self {
+        GeneralError::Error(value.to_owned())
+    }
+}
+
 impl Display for GeneralError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
+            Self::Error(err) => f.write_fmt(format_args!("Error: {}", err))?,
             Self::IoError(err) => f.write_fmt(format_args!("IoError: {}", err))?,
             Self::ProcessError(desc) => f.write_fmt(format_args!("ProcessError: {}", desc))?,
             Self::PipelineError(desc) => f.write_fmt(format_args!("PipelineError: {}", desc))?,

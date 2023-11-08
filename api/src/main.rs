@@ -1,8 +1,10 @@
 use std::convert::Infallible;
 use hyper::{Body, Request, Response, server::Server};
 use hyper::service::{make_service_fn, service_fn};
+use train_lib::artifact::artifact_dao::{ArtifactDao,connection};
 use train_lib::{error, artifact::{Artifact, ArtifactRequest}};
 
+const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1";
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn 'static + std::error::Error + Send + Sync>>{
     env_logger::init();    
@@ -54,10 +56,23 @@ async fn save_artifact(data: &[u8]) -> error::Result<()>{
     
     let artifact_request: ArtifactRequest = serde_json::from_str(str_data).expect("failed to deserialize the artifact request");
     artifact_request.validate().expect("Failed to validate the request");
-    let artifact = Artifact::from(artifact_request);
-    artifact.save()
+    let artifact = Artifact::try_from(artifact_request)?;
+    let mut dao = ArtifactDao { conn : connection(DEFAULT_REDIS_URL).expect(&format!("Failed to open redis connection on {DEFAULT_REDIS_URL}"))};
+    dao.save(artifact)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_main_save_artifact() {
+        let request = r#"{"name":"opsman-main","total":1,"target":1,"refs":[{"name":"mock"}],"build":{"tasks":[{"name":"opsman-task1","spec":{"steps":[{"name":"step-collectdata","image":"ubuntu","script":"echo $(params.name)\necho with inputs: art_id: $(params.art_id)\tinst_id: $(params.inst_id) Done\nls -l /var\necho secret aws-route53\nls -l /var/aws-route53\ncat /var/aws-route53/user_id\ncat var/aws-route53/secret\necho secret pivnet\nls -l /var/pivnet\necho account gcp-environment\nls -l /var/gcp-environment","volumeMounts":[{"name":"aws-route53","mountPath":"/var/aws-route53"},{"name":"pivnet","mountPath":"/var/pivnet"},{"name":"gcp-environment","mountPath":"/var/gcp-environment"}]}],"params":[{"name":"name","type":"string","description":"The username"},{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"volumes":[{"name":"aws-route53","secret":{"secretName":"sec-$(params.art_id)-aws-route53"}},{"name":"pivnet","secret":{"secretName":"sec-$(params.art_id)-pivnet"}},{"name":"gcp-environment","secret":{"secretName":"acnt-$(params.art_id)-$(params.inst_id)-gcp-environment"}}]},"paramValues":[{"name":"name","value":"John"},{"name":"art_id","value":"$(params.art_id)"},{"name":"inst_id","value":"$(params.inst_id)"}]}],"params":[{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"secrets":[{"name":"aws-route53"},{"name":"pivnet"}],"accounts":[{"name":"gcp-environment"}]},"clean":{"tasks":[{"name":"task1","spec":{"steps":[{"name":"collect-data","image":"ubuntu","script":"echo $(params.name)\necho with art_id:"}],"params":[{"name":"name","type":"string","description":"The username"}]},"paramValues":[{"name":"name","value":"John"}]}],"params":[{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"secrets":[{"name":"aws-route53"},{"name":"pivnet"}],"accounts":[{"name":"gcp-environment"}]}}"#;
+        let data = request.as_bytes();
+        save_artifact(data).await.expect("Failed to save artifact");
+
+    }
+}
 /*
 fn apis() {
     println!("Starting API!");
