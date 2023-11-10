@@ -1,2 +1,2 @@
 [workspace]
-members = ["api", "scheduler", "shared"]
+members = ["api", "scheduler", "reconciller", "shared"]
