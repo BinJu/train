@@ -1,6 +1,8 @@
 use crate::error;
 use redis::ConnectionLike;
 
+pub const DEFAULT_QUEUE_NAME: &str = "train-artifact-01";
+
 pub struct Queue {
     name: String
 }

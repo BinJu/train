@@ -30,8 +30,16 @@ impl InstanceDao {
         }
     }
 
-    pub fn many(art_ids: &str, _conn: &mut dyn redis::ConnectionLike) -> error::Result<Vec<Instance>> {
-        Err(error::error("unimplemented yet"))
+    pub fn many(art_id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<Vec<Instance>> {
+        let inst_ids: Option<Vec<String>> = redis::Cmd::smembers(format!("instance:{}", art_id)).query(conn)?;
+        if inst_ids.is_none() { return Ok(Vec::new()) }
+        let inst_ids = inst_ids.unwrap();
+        let mut result = Vec::new();
+        for id in inst_ids {
+            let inst = Self::one(&id, art_id, conn)?;
+            result.push(inst);
+        }
+        Ok(result)
     }
 
     pub fn delete(id: &str, art_id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<()> {

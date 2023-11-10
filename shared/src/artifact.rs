@@ -126,10 +126,12 @@ impl <'a> TryFrom<ArtifactRequest<'a>> for Artifact {
     type Error = error::GeneralError;
     fn try_from(value: ArtifactRequest<'a>) -> Result<Self, Self::Error> {
         let build_name = "build-".to_owned() + value.name;
+        //TODO: prefix each of the task with the art_id
         let manifest_build = to_manifest_with_optional_args(&build_name, value.build.tasks, value.build.params, value.build.results);
         let manifest_build_yaml = manifest_build.to_yaml()?;
 
         let clean_name = "clean-".to_owned() + value.name;
+        //TODO: prefix each of the task with the art_id
         let manifest_clean = to_manifest_with_optional_args(&clean_name, value.clean.tasks, value.clean.params, value.clean.results);
         let manifest_clean_yaml = manifest_clean.to_yaml()?;
         Ok(Artifact {

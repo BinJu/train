@@ -23,7 +23,8 @@ pub enum InstanceStatus {
 pub struct InstanceNumbers {
     pub running: u32,
     pub fail: u32,
-    pub done: u32
+    pub done_clean: u32,
+    pub done_dirt: u32
 }
 
 impl Default for InstanceStatus {

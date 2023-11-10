@@ -2,6 +2,7 @@ use std::convert::Infallible;
 use hyper::{Body, Request, Response, server::Server};
 use hyper::service::{make_service_fn, service_fn};
 use train_lib::artifact::artifact_dao::{ArtifactDao,connection};
+use train_lib::queue;
 use train_lib::{error, artifact::{Artifact, ArtifactRequest}};
 
 const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1";
@@ -36,9 +37,13 @@ async fn handler_artifact(mut req: Request<Body>) -> Result<Response<Body>, Infa
     match hyper::body::to_bytes(req.body_mut()).await {
         Ok(data) => {
             match save_artifact(&data).await {
-                Ok(()) => Ok(Response::new(Body::from("Ok"))),
+                Ok(art_id) => {
+                    match enqueue(&art_id) {
+                        Ok(_) => Ok(Response::new(Body::from("Ok"))),
+                        Err(err) => Ok(Response::new(Body::from(format!("Failed to enqueue the artifact: {}, with error: {}", art_id, err))))
+                    }
+                },
                 Err(err) => Ok(Response::new(Body::from(format!("Fail to save artifact: {}", err))))
-
             }
         },
         Err(err) => {
@@ -51,14 +56,22 @@ async fn handler_secret(req: Request<Body>) -> Result<Response<Body>, Infallible
     Ok(Response::new(Body::from(format!("Hello World from: {}", req.uri().path()))))
 }
 
-async fn save_artifact(data: &[u8]) -> error::Result<()>{
+async fn save_artifact(data: &[u8]) -> error::Result<String>{
     let str_data = std::str::from_utf8(data).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("Failed to deserialize utf8: {err}")))?;
     
     let artifact_request: ArtifactRequest = serde_json::from_str(str_data).expect("failed to deserialize the artifact request");
     artifact_request.validate().expect("Failed to validate the request");
     let artifact = Artifact::try_from(artifact_request)?;
     let mut dao = ArtifactDao { conn : connection(DEFAULT_REDIS_URL).expect(&format!("Failed to open redis connection on {DEFAULT_REDIS_URL}"))};
-    dao.save(artifact)
+    let art_id = artifact.id.clone();
+    dao.save(artifact)?;
+    Ok(art_id)
+}
+
+fn enqueue(art_id: &str) -> error::Result<()> {
+    let queue = queue::Queue::new(queue::DEFAULT_QUEUE_NAME.to_owned());
+    let mut conn = connection(DEFAULT_REDIS_URL)?;
+    queue.enqueue(art_id, &mut conn)
 }
 
 #[cfg(test)]
