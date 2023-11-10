@@ -1,10 +1,14 @@
 pub mod manifest;
 pub mod pipeline;
+pub mod instance;
 pub mod artifact_dao;
+pub mod instance_dao;
 
 use crate::error;
+use chrono::{DateTime,  Local};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use instance::{Instance, InstanceStatus};
 
 const DEFAULT_NAMESPACE: &str = "train";
 pub const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1";
@@ -51,7 +55,7 @@ pub struct ArtifactRef {
     pub name: String
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Artifact {
     pub id: String,
     pub tags: HashMap<String, String>,
@@ -61,30 +65,23 @@ pub struct Artifact {
     pub clean: Rollout
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Rollout {
     pub name: String,
+    pub stats: ArtifactStatus,
+    pub last_sched: DateTime<Local>,
     pub accounts: Vec<AccountRef>,
     pub secrets: Vec<SecretRef>,
     pub art_refs: Vec<ArtifactRef>,
     pub manifest: String
 }
 
-pub struct Instance<'a> {
-    pub id: &'a str,
-    pub art_id: &'a str,
-    pub run_name: String,
-    pub dirt: bool,
-    //TODO: Tekton is based on async deploy, You may not get the final status immediately. There
-    //must be some process/thread to keep them udpated.
-    pub stat: InstanceStatus,
-    pub results: Option<HashMap<&'a str, &'a str>> //TODO: abstract the result from pipeline run.
-}
-
-pub enum InstanceStatus {
-    NotStarted,
+#[derive(Debug, PartialEq, Clone)]
+pub enum ArtifactStatus {
+    NotScheduled,
     Running,
-    Pending,
+    PendingAccount,
+    PendingArtRef,
     Fail,
     Done
 }
@@ -98,6 +95,8 @@ impl Artifact {
             target,
             build: Rollout {
                 name: "build-".to_owned() + art_id,
+                stats: ArtifactStatus::NotScheduled,
+                last_sched: "2012-12-12T12:12:12Z".parse::<DateTime<Local>>().expect("Failed to parse datetime string to last_sched"),
                 accounts: Vec::new(),
                 secrets: Vec::new(),
                 art_refs: Vec::new(),
@@ -105,6 +104,8 @@ impl Artifact {
             },
             clean: Rollout {
                 name: "clean-".to_owned() + art_id,
+                stats: ArtifactStatus::NotScheduled,
+                last_sched: "2012-12-12T12:12:12Z".parse::<DateTime<Local>>().expect("Failed to parse datetime string to last_sched"),
                 accounts: Vec::new(),
                 secrets: Vec::new(),
                 art_refs: Vec::new(),
@@ -112,24 +113,6 @@ impl Artifact {
             }
         }
     }
-
-    pub fn rollout(&mut self) -> error::Result<usize> {
-        /*let diff = self.target as i32 - self.in_stock.len() as i32;
-        let instances = if diff > 0 { //build
-            self.build.run(diff)?
-        } else {
-            self.clean.run(-diff)?
-        };
-        self.in_stock.extend(instances);
-        Ok(self.in_stock.len())
-        */
-        Ok(0)
-    }
-
-    pub fn destroy(&self) -> error::Result<()> {
-        Ok(())
-    }
-
 }
 
 impl <'a>ArtifactRequest<'a> {
@@ -156,6 +139,8 @@ impl <'a> TryFrom<ArtifactRequest<'a>> for Artifact {
             target: value.target,
             build: Rollout {
                 name: "build-".to_owned() + value.name,
+                stats: ArtifactStatus::NotScheduled,
+                last_sched: "2012-12-12T12:12:12Z".parse::<DateTime<Local>>().expect("Failed to parse datetime string to last_sched"),
                 accounts: value.build.accounts.unwrap_or(Vec::new()),
                 secrets: value.build.secrets.unwrap_or(Vec::new()),
                 art_refs: value.refs.unwrap_or(Vec::new()),
@@ -163,6 +148,8 @@ impl <'a> TryFrom<ArtifactRequest<'a>> for Artifact {
             },
             clean: Rollout {
                 name: "clean-".to_owned() + value.name,
+                stats: ArtifactStatus::NotScheduled,
+                last_sched: "2012-12-12T12:12:12Z".parse::<DateTime<Local>>().expect("Failed to parse datetime string to last_sched"),
                 accounts: Vec::new(),
                 secrets: Vec::new(),
                 art_refs: Vec::new(),
@@ -173,7 +160,11 @@ impl <'a> TryFrom<ArtifactRequest<'a>> for Artifact {
 }
 
 impl Rollout {
-    pub fn run(&mut self, copies: i32) -> error::Result<Vec<Box<Instance>>> {
+    pub fn run(&mut self, copies: i32) -> error::Result<Vec<Instance>> {
+        //TODO: The accounts and art_ref not ready will cause an error, then mark the artifact
+        //status to be pending, this should be rescheduled by another module `reconciller`.
+        //Update the last_sched
+        self.last_sched = Local::now();
         let mut result = Vec::new();
         let secrets = self.prepare_secrets()?;
         Self::apply_secrets(&secrets)?;
@@ -183,22 +174,27 @@ impl Rollout {
         // Make sure the manifest is updated
         pipeline::apply(self.manifest.clone(), DEFAULT_NAMESPACE)?;
         for _i in 0..copies {
-            // Prepare accounts
-            let accounts = self.prepare_accounts()?;
-            Self::apply_secrets(&accounts)?;
             // Prepare refs
             let refs = self.prepare_refs()?;
             Self::apply_secrets(&refs)?;
-            let params: Vec<&str> = vec!["art_id=opsman", "inst_id=warn-ma20"];
+            // Prepare accounts
+            let accounts = self.prepare_accounts()?;
+            Self::apply_secrets(&accounts)?;
+
+            //TODO: Generate the instance ID
+            let inst_id = "warn-ma20";
+            let arg_art_id = format!("art_id={}", self.name);
+            let arg_inst_id = format!("inst_id={}", inst_id);
+            let params: Vec<&str> = vec![&arg_art_id, &arg_inst_id];
             let run_name = pipeline::run(&self.name, DEFAULT_NAMESPACE, params)?;
-            result.push(Box::new(Instance{
-                id: "warn-ma20",
-                art_id: &self.name,
+            result.push(Instance{
+                id: "warn-ma20".to_owned(),
+                art_id: self.name.clone(),
                 run_name,
                 dirt: false,
                 stat: InstanceStatus::Running,
                 results: None
-            }));
+            });
         }
         Ok(result)
     }
@@ -231,6 +227,12 @@ impl Rollout {
         }
         pipeline::apply(buff, DEFAULT_NAMESPACE)?;
         Ok(())
+    }
+}
+
+impl Default for ArtifactStatus {
+    fn default() -> Self {
+        ArtifactStatus::NotScheduled
     }
 }
 
@@ -286,25 +288,31 @@ impl AccountRef {
     }
 }
 
-pub fn handle_artifact_creation<'a>(artifact: Artifact) -> error::Result<String> {
-    //TODO: secrets must be set to the kubenetes cluster for the user. format: secret_userid
-    //TODO: accounts must be set as param/env to the tekton pipeline.
-    println!("Creating the artifact with: id={}", artifact.id);
-    // 
-    /*let request_name = artifact.create.request.name;
-    let request: manifest::RolloutRequest = artifact.create.request;
+impl ToString for ArtifactStatus {
+    fn to_string(&self) -> String {
+        match self {
+            Self::NotScheduled => "NotScheduled",
+            Self::Running => "Running",
+            Self::PendingAccount => "PendingAccount",
+            Self::PendingArtRef => "PendingArtRef",
+            Self::Fail => "Fail",
+            Self::Done => "Done"
+        }.to_owned()
+    }
+}
 
-    let manifest = build_tekton_manifest(request)?;
-    //let manifest = manifest::art_system_tasks(manifest)?;
-    apply_artifact(&manifest, "train")?;
-    // prepair the artreference.
-    // prepair the secret
-    // prepair the account
-    let art_id = format!("art_id={}", artifact.id);
-    let params: Vec<&str> = vec![&art_id, "torontowarm"];
-    let run_name = pipeline::run(request_name, "train", params)?;
-    Ok(run_name)*/
-    Ok(String::new())
+impl <R: AsRef<str>> From<R> for ArtifactStatus {
+    fn from(value: R) -> Self {
+        let val_ref = value.as_ref();
+        match val_ref {
+            "Running" => Self::Running,
+            "PendingAccount" => Self::PendingAccount,
+            "PendingArfRef" => Self::PendingArtRef,
+            "Fail" => Self::Fail,
+            "Done" => Self::Done,
+            _ => Self::NotScheduled
+        }
+    }
 }
 
 #[cfg(test)]
@@ -319,16 +327,17 @@ mod tests {
         let mut request: ArtifactRequest = serde_json::from_str(request).expect("Failed to deserialize the payload to ArtifactRequest object");
         request.name = "opsman-warn-ma20";
 
-        let artifact = Artifact::try_from(request).expect("Failed to deserialize artifact from artifact request");
-        let manifest_yaml = artifact.build.manifest;
-        pipeline::apply(manifest_yaml, DEFAULT_NAMESPACE).expect("Fail to apply manifest to kubernetets");
-        let params: Vec<&str> = vec!["art_id=opsman", "inst_id=warn-ma20"];
-        let run_name = pipeline::run(&artifact.build.name, "train", params).unwrap();
+        let mut artifact = Artifact::try_from(request).expect("Failed to deserialize artifact from artifact request");
+        //let manifest_yaml = artifact.build.manifest;
+        //pipeline::apply(manifest_yaml, DEFAULT_NAMESPACE).expect("Fail to apply manifest to kubernetets");
+        let instances = artifact.build.run(1).expect("Failed to roll out the artifct");
+        //let params: Vec<&str> = vec!["art_id=opsman", "inst_id=warn-ma20"];
+        //let run_name = pipeline::run(&artifact.build.name, "train", params).unwrap();
         let pipelines = pipeline::list("train").expect("failed to list the pipelines");
         assert!(pipelines.len() >= 1);
-        assert_eq!(pipelines[0], "build-opsman-warn-ma20");
+        assert!(pipelines.iter().any(|x| x == "build-opsman-warn-ma20"));
         std::thread::sleep(time::Duration::from_millis(20));
-        let logs = pipeline::logs(&run_name, "train").expect("Failed to acquire logs");
+        let logs = pipeline::logs(&instances[0].run_name, "train").expect("Failed to acquire logs");
         println!("### logs: \n{}", logs);
         assert!(logs.contains("John"));
         //pipeline::delete_run("--all", "train").unwrap();

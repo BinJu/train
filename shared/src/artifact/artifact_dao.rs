@@ -1,7 +1,8 @@
 use crate::error;
 use std::collections::HashMap;
 use redis::{ConnectionLike, Connection};
-use super::{Artifact, ArtifactRef, Rollout, AccountRef, SecretRef};
+use super::{Artifact, ArtifactRef, Rollout, AccountRef, SecretRef, ArtifactStatus};
+use chrono::{DateTime, Local};
 
 pub struct ArtifactDao { 
     pub conn: Connection 
@@ -35,6 +36,8 @@ impl ArtifactDao {
         let build_art_refs: Option<Vec<String>> = redis::Cmd::new().arg("SMEMBERS").arg(&format!("artifact:{rec_id}:build:art_refs")).query(conn)?;
         let build_rollout = Rollout{
             name: build["name"].clone(),
+            stats: build["stats"].clone().into(),
+            last_sched: build["last_sched"].parse::<DateTime<Local>>().map_err(|err| error::error(&format!("Fail to convert last schedule time to DateTime: {}", err)))?,
             accounts: build_accounts.map_or(Vec::new(), |v| v.into_iter().map(|vi| AccountRef {name: vi}).collect()),
             secrets: build_secrets.map_or(Vec::new(), |v| v.into_iter().map(|vi| SecretRef{name: vi}).collect()),
             art_refs: build_art_refs.map_or(Vec::new(), |v| v.into_iter().map(|vi| ArtifactRef {name: vi}).collect()),
@@ -50,6 +53,8 @@ impl ArtifactDao {
         let clean_art_refs: Option<Vec<String>> = redis::Cmd::new().arg("SMEMBERS").arg(&format!("artifact:{rec_id}:clean:art_refs")).query(conn)?;
         let clean_rollout = Rollout{
             name: clean["name"].clone(),
+            stats: clean["stats"].clone().into(),
+            last_sched: clean["last_sched"].parse::<DateTime<Local>>().map_err(|err| error::error(&format!("Fail to convert last schedule time to DateTime: {}", err)))?,
             accounts: clean_accounts.map_or(Vec::new(), |v| v.into_iter().map(|vi| AccountRef {name: vi}).collect()),
             secrets: clean_secrets.map_or(Vec::new(), |v| v.into_iter().map(|vi| SecretRef{name: vi}).collect()),
             art_refs: clean_art_refs.map_or(Vec::new(), |v| v.into_iter().map(|vi|ArtifactRef {name: vi}).collect()),
@@ -67,12 +72,27 @@ impl ArtifactDao {
         })
     }
 
-    pub fn many(ids: &[&str], conn: &mut dyn redis::ConnectionLike) -> error::Result<Vec<Self>> {
+    pub fn many(_ids: &[&str], _conn: &mut dyn redis::ConnectionLike) -> error::Result<Vec<Self>> {
         Err(error::error("unimplemented yet"))
     }
 
-    pub fn delete() {
-
+    pub fn delete(id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<()> {
+        let rec_id: Option<u32> = Self::rec_id(id, conn)?;
+        if let Some(rec_id) = rec_id {
+            redis::pipe()
+                .del(format!("artifact:{}:clean:accounts", rec_id)).ignore()
+                .del(format!("artifact:{}:clean:secrets", rec_id)).ignore()
+                .del(format!("artifact:{}:clean:art_refs", rec_id)).ignore()
+                .del(format!("artifact:{}:clean", rec_id)).ignore()
+                .del(format!("artifact:{}:build:accounts", rec_id)).ignore()
+                .del(format!("artifact:{}:build:secrets", rec_id)).ignore()
+                .del(format!("artifact:{}:build:art_refs", rec_id)).ignore()
+                .del(format!("artifact:{}:build", rec_id)).ignore()
+                .del(format!("artifact:{}", rec_id)).ignore()
+                .hdel("artifact:id", id).ignore()
+                .execute(conn);
+        }
+        Ok(())
     }
 
     pub fn update(&mut self, artifact: Artifact) -> error::Result<()> {
@@ -169,6 +189,8 @@ impl ArtifactDao {
                                   ("target", artifact.target.to_string()) ]).execute(&mut self.conn);
         redis::Cmd::hset_multiple(format!("artifact:{record_id}:build"), &[
                                   ("name", artifact.build.name),
+                                  ("stats", artifact.build.stats.to_string()),
+                                  ("last_sched", artifact.build.last_sched.to_string()),
                                   ("manifest", artifact.build.manifest) ]).execute(&mut self.conn);
         Self::update_list(&format!("artifact:{record_id}:build:accounts"), &artifact.build.accounts.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
         Self::update_list(&format!("artifact:{record_id}:build:secrets"), &artifact.build.secrets.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
@@ -176,6 +198,8 @@ impl ArtifactDao {
 
         redis::Cmd::hset_multiple(format!("artifact:{record_id}:clean"), &[
                                   ("name", artifact.clean.name),
+                                  ("stats", artifact.clean.stats.to_string()),
+                                  ("last_sched", artifact.clean.last_sched.to_string()),
                                   ("manifest", artifact.clean.manifest) ]).execute(&mut self.conn);
         Self::update_list(&format!("artifact:{record_id}:clean:accounts"), &artifact.clean.accounts.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
         Self::update_list(&format!("artifact:{record_id}:clean:secrets"), &artifact.clean.secrets.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
@@ -184,7 +208,6 @@ impl ArtifactDao {
         Ok(())
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,7 +219,8 @@ mod tests {
 
     #[test]
     fn test_save_and_load_artifact() {
-        let conn = redis::Client::open("redis://127.0.0.1").unwrap().get_connection().unwrap();
+        let mut conn = redis::Client::open("redis://127.0.0.1").unwrap().get_connection().unwrap();
+        ArtifactDao::delete("Toronto1", &mut conn).expect("Failed to delete artifact Toronto1");
         let artifact = Artifact {
             id: "Toronto1".to_owned(),
             tags: HashMap::new(),
@@ -204,6 +228,8 @@ mod tests {
             target: 2,
             build: Rollout {
                 name: "build-toronto1".to_owned(),
+                stats: ArtifactStatus::NotScheduled,
+                last_sched: "2012-12-12T12:12:12Z".parse::<DateTime<Local>>().expect("Failed to parse datetime string to last_sched"),
                 accounts: vec![AccountRef{name: "gcp".to_owned()}, AccountRef{name: "basic".to_owned()}],
                 secrets: vec![SecretRef{name: "awsroute-53".to_owned()}, SecretRef{name: "pivnet".to_owned()}],
                 art_refs: vec![ArtifactRef{name: "opsman".to_owned()}, ArtifactRef{name: "gcp-basic".to_owned()}],
@@ -211,6 +237,8 @@ mod tests {
             },
             clean: Rollout {
                 name: "clean-toronto1".to_owned(),
+                stats: ArtifactStatus::NotScheduled,
+                last_sched: "2012-12-12T12:12:12Z".parse::<DateTime<Local>>().expect("Failed to parse datetime string to last_sched"),
                 accounts: vec![AccountRef{name: "gcp".to_owned()}, AccountRef{name: "basic".to_owned()}],
                 secrets: vec![SecretRef{name: "awsroute-53".to_owned()}, SecretRef{name: "pivnet".to_owned()}],
                 art_refs: vec![ArtifactRef{name: "opsman".to_owned()}, ArtifactRef{name: "gcp-basic".to_owned()}],

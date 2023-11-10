@@ -1,6 +1,7 @@
 pub mod error;
 pub mod artifact;
 pub mod resource;
+pub mod queue;
 mod command;
 
 #[cfg(test)]
@@ -14,7 +15,8 @@ mod tests {
         let artifact_request: ArtifactRequest = serde_json::from_str(request).expect("failed to deserialize the rollout request");
         artifact_request.validate().expect("Failed to validate the request");
         let artifact = Artifact::try_from(artifact_request).expect("failed to deserialize the request to artifact");
-        let conn = redis::Client::open("redis://127.0.0.1").unwrap().get_connection().unwrap();
+        let mut conn = redis::Client::open("redis://127.0.0.1").unwrap().get_connection().unwrap();
+        ArtifactDao::delete("opsman-lib", &mut conn).expect("Failed to delete artifact:opsman-lib from DB");
         let mut dao = ArtifactDao {conn};
         dao.save(artifact).expect("Failed to save artifact");
     }
