@@ -16,8 +16,8 @@ pub struct Instance {
 pub enum InstanceStatus {
     Unknown,
     Running,
-    Fail,
-    Done
+    Failed(String),
+    Succeeded
 }
 
 pub struct InstanceNumbers {
@@ -37,9 +37,9 @@ impl <S:AsRef<str>>From<S> for InstanceStatus {
     fn from(value: S) -> Self {
         match value.as_ref() {
             "Running" => InstanceStatus::Running,
-            "Fail" => InstanceStatus::Fail,
-            "Done" => InstanceStatus::Done,
-                _ => InstanceStatus::Unknown
+            "Succeeded" => InstanceStatus::Succeeded,
+            "" => InstanceStatus::Unknown,
+            _ => InstanceStatus::Failed(value.as_ref().to_owned()),
         }
     }
 }
@@ -47,10 +47,10 @@ impl <S:AsRef<str>>From<S> for InstanceStatus {
 impl ToString for InstanceStatus {
     fn to_string(&self) -> String {
         match self {
-            Self::Unknown => "Unknown",
-            Self::Running => "Running",
-            Self::Fail => "Fail",
-            Self::Done => "Done"
-        }.to_owned()
+            Self::Unknown => "Unknown".to_owned(),
+            Self::Running => "Running".to_owned(),
+            Self::Failed(reason) => format!("Fail: {}", reason),
+            Self::Succeeded => "Succeeded".to_owned()
+        }
     }
 }

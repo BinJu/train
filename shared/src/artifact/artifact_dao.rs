@@ -72,8 +72,12 @@ impl ArtifactDao {
         })
     }
 
-    pub fn many(_ids: &[&str], _conn: &mut dyn redis::ConnectionLike) -> error::Result<Vec<Self>> {
-        Err(error::error("unimplemented yet"))
+    pub fn all_ids(conn: &mut dyn redis::ConnectionLike) -> error::Result<Vec<String>> {
+        let ids: Option<Vec<String>> = redis::Cmd::hkeys("artifact:id").query(conn)?;
+        match ids {
+            Some(art_ids) => Ok(art_ids),
+            None => Ok(Vec::new())
+        }
     }
 
     pub fn delete(id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<()> {

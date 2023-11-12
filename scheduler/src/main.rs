@@ -57,8 +57,8 @@ fn statistic_instances(instances: &[Instance]) -> error::Result<InstanceNumbers>
     for inst in instances {
         match inst.stat {
             InstanceStatus::Running => running += 1,
-            InstanceStatus::Fail => fail += 1,
-            InstanceStatus::Done=> if !inst.dirt {done_clean += 1} else {done_dirt += 1},
+            InstanceStatus::Failed(_) => fail += 1,
+            InstanceStatus::Succeeded=> if !inst.dirt {done_clean += 1} else {done_dirt += 1},
             _ => {}
         }
     }
@@ -109,7 +109,7 @@ fn update_artifact(mut artifact: Artifact, to_deploy: i32, rollout_result: error
             match err {
                 error::GeneralError::PendingArtRef => rollout.stats = ArtifactStatus::PendingArtRef,
                 error::GeneralError::PendingAccount => rollout.stats = ArtifactStatus::PendingAccount,
-                _ => rollout.stats = ArtifactStatus::Fail
+                _ => rollout.stats = ArtifactStatus::Failed
             };
         }
     }
@@ -226,15 +226,15 @@ mod tests {
     fn test_statistic_instances() {
         let instances = vec![
             instance(false, InstanceStatus::Running),
-            instance(false, InstanceStatus::Fail),
-            instance(false, InstanceStatus::Fail),
-            instance(false, InstanceStatus::Done),
-            instance(false, InstanceStatus::Done),
-            instance(false, InstanceStatus::Done),
-            instance(true, InstanceStatus::Done),
-            instance(true, InstanceStatus::Done),
-            instance(true, InstanceStatus::Done),
-            instance(true, InstanceStatus::Done),
+            instance(false, InstanceStatus::Failed(String::new())),
+            instance(false, InstanceStatus::Failed(String::new())),
+            instance(false, InstanceStatus::Succeeded),
+            instance(false, InstanceStatus::Succeeded),
+            instance(false, InstanceStatus::Succeeded),
+            instance(true, InstanceStatus::Succeeded),
+            instance(true, InstanceStatus::Succeeded),
+            instance(true, InstanceStatus::Succeeded),
+            instance(true, InstanceStatus::Succeeded),
         ];
         let stats = statistic_instances(&instances).unwrap();
         assert_eq!(stats.running, 1);

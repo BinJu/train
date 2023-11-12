@@ -4,13 +4,15 @@ pub mod instance;
 pub mod artifact_dao;
 pub mod instance_dao;
 
+mod naming;
+
 use crate::error;
 use chrono::{DateTime,  Local};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use instance::{Instance, InstanceStatus};
 
-const DEFAULT_NAMESPACE: &str = "train";
+pub const DEFAULT_NAMESPACE: &str = "train";
 pub const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1";
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -82,8 +84,8 @@ pub enum ArtifactStatus {
     Running,
     PendingAccount,
     PendingArtRef,
-    Fail,
-    Done
+    Failed,
+    Succeeded
 }
 
 impl Artifact {
@@ -183,12 +185,11 @@ impl Rollout {
             let accounts = self.prepare_accounts()?;
             Self::apply_secrets(&accounts)?;
 
-            //TODO: Generate the instance ID
-            let inst_id = "warn-ma20";
+            let inst_id = format!("{}-{}", naming::word(None), naming::random_id());
             let arg_art_id = format!("art_id={}", self.name);
             let arg_inst_id = format!("inst_id={}", inst_id);
             let params: Vec<&str> = vec![&arg_art_id, &arg_inst_id];
-            let run_name = pipeline::run(&self.name, DEFAULT_NAMESPACE, params)?;
+            let run_name = pipeline::run(&self.name, DEFAULT_NAMESPACE, &params)?;
             result.push(Instance{
                 id: "warn-ma20".to_owned(),
                 art_id: self.name.clone(),
@@ -297,8 +298,8 @@ impl ToString for ArtifactStatus {
             Self::Running => "Running",
             Self::PendingAccount => "PendingAccount",
             Self::PendingArtRef => "PendingArtRef",
-            Self::Fail => "Fail",
-            Self::Done => "Done"
+            Self::Failed => "Failed",
+            Self::Succeeded=> "Succeeded"
         }.to_owned()
     }
 }
@@ -310,8 +311,8 @@ impl <R: AsRef<str>> From<R> for ArtifactStatus {
             "Running" => Self::Running,
             "PendingAccount" => Self::PendingAccount,
             "PendingArfRef" => Self::PendingArtRef,
-            "Fail" => Self::Fail,
-            "Done" => Self::Done,
+            "Failed" => Self::Failed,
+            "Succeeded" => Self::Succeeded,
             _ => Self::NotScheduled
         }
     }
