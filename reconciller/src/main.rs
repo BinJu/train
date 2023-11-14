@@ -1,6 +1,6 @@
 use std::thread::{self, JoinHandle};
 
-use train_lib::{artifact::{instance::{Instance, InstanceNumbers, InstanceStatus}, artifact_dao::ArtifactDao, instance_dao::InstanceDao, Artifact, ArtifactStatus, DEFAULT_REDIS_URL}, error::{self, GeneralError}, *};
+use train_lib::{artifact::{dao::ArtifactDao, dao::InstanceDao, DEFAULT_REDIS_URL}, error, *};
 
 //TODO: Reconciller's main tasks:
 //1. Scan all the artifacts that are under status:
@@ -39,9 +39,7 @@ fn sync_instances_with_stats_callback(callback: impl Clone+FnOnce(&str,&str)->er
             let callback_fn = callback.clone();
             let stat = callback_fn(run_name, artifact::DEFAULT_NAMESPACE)?;
             inst.stat = stat.into();
-            let conn = redis::Client::open(DEFAULT_REDIS_URL)?.get_connection()?;
-            let mut inst_dao = InstanceDao { conn };
-            inst_dao.update(inst)?;
+            InstanceDao::update(inst, &mut conn)?;
         }
     }
     Ok(())
@@ -79,8 +77,20 @@ where T: 'static + FnOnce()-> error::Result<()> + Sync + Send + Clone{
 
 #[cfg(test)]
 mod tests {
+    use train_lib::artifact::{Artifact, ArtifactRequest, pipeline};
+    use serde_json;
     #[test]
     fn test_sync_instances() {
         //pipeline
+        pipeline::delete_run("--all", "train").unwrap();
+        let request = r#"{"name":"recon-sample","total":1,"target":1,"refs":[{"name":"mock"}],"build":{"tasks":[{"name":"arttest-task1","spec":{"steps":[{"name":"step1","image":"ubuntu","script":"echo $(params.name)\necho with art_id:"}],"params":[{"name":"name","type":"string","description":"The username"}]},"paramValues":[{"name":"name","value":"John"}]}],"params":[{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"secrets":[{"name":"aws-route53"},{"name":"pivnet"}],"accounts":[{"name":"gcp-environment"}]},"clean":{"tasks":[{"name":"task1","spec":{"steps":[{"name":"step1","image":"ubuntu","script":"echo $(params.name)\necho with art_id:"}],"params":[{"name":"name","type":"string","description":"The username"}]},"paramValues":[{"name":"name","value":"John"}]}],"params":[{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"secrets":[{"name":"aws_route53"},{"name":"pivnet"}],"accounts":[{"name":"gcp_environment"}]}}"#;
+
+        let mut request: ArtifactRequest = serde_json::from_str(request).expect("Failed to deserialize the payload to ArtifactRequest object");
+        request.format().expect("Failed to format the artifact request");
+
+        let mut artifact = Artifact::try_from(request).expect("Failed to deserialize artifact from artifact request");
+        //let manifest_yaml = artifact.build.manifest;
+        //pipeline::apply(manifest_yaml, DEFAULT_NAMESPACE).expect("Fail to apply manifest to kubernetets");
+        let instances = artifact.build.run(1).expect("Failed to roll out the artifct");
     }
 }

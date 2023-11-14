@@ -6,7 +6,7 @@ mod command;
 
 #[cfg(test)]
 mod tests {
-    use crate::artifact::artifact_dao::ArtifactDao;
+    use crate::artifact::dao::ArtifactDao;
     use crate::artifact::{ArtifactRequest, Artifact};
     // POST   /api/v1/art with body in json as request
     #[test]
@@ -17,8 +17,7 @@ mod tests {
         let artifact = Artifact::try_from(artifact_request).expect("failed to deserialize the request to artifact");
         let mut conn = redis::Client::open("redis://127.0.0.1").unwrap().get_connection().unwrap();
         ArtifactDao::delete("opsman-lib", &mut conn).expect("Failed to delete artifact:opsman-lib from DB");
-        let mut dao = ArtifactDao {conn};
-        dao.save(artifact).expect("Failed to save artifact");
+        ArtifactDao::save(artifact, &mut conn).expect("Failed to save artifact");
     }
 
     #[test]

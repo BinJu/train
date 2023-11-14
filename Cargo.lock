@@ -653,6 +653,9 @@ dependencies = [
  "env_logger",
  "log",
  "redis",
+ "serde",
+ "serde_json",
+ "serde_yaml",
  "train_lib",
 ]
 

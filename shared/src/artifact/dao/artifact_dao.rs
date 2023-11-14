@@ -1,24 +1,17 @@
 use crate::error;
 use std::collections::HashMap;
-use redis::{ConnectionLike, Connection};
-use super::{Artifact, ArtifactRef, Rollout, AccountRef, SecretRef, ArtifactStatus};
+use redis::ConnectionLike;
+use super::super::{Artifact, ArtifactRef, Rollout, AccountRef, SecretRef, ArtifactStatus};
 use chrono::{DateTime, Local};
 
-pub struct ArtifactDao { 
-    pub conn: Connection 
-}
-
-pub fn connection(url: &str) -> error::Result<redis::Connection> {
-    let conn = redis::Client::open(url)?.get_connection()?;
-    Ok(conn)
-}
+pub struct ArtifactDao;
 
 //docker run --name train-redis --network bridge -h redis-server -p 127.0.0.1:6379:6379 -d redis
 //docker run -it --rm --network bridge redis redis-cli -h IP
 //The IP could be acquired by running `docker network inspect bridge`
 
 impl ArtifactDao {
-    pub fn one(id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<Artifact> {
+    pub fn one(id: &str, conn: &mut dyn ConnectionLike) -> error::Result<Artifact> {
         let rec_id: Option<u32> = Self::rec_id(id, conn)?;
         if rec_id.is_none() {return Err(error::error(&format!("failed to find the artifact id: {id} from DB")))};
         // read the record
@@ -72,7 +65,7 @@ impl ArtifactDao {
         })
     }
 
-    pub fn all_ids(conn: &mut dyn redis::ConnectionLike) -> error::Result<Vec<String>> {
+    pub fn all_ids(conn: &mut dyn ConnectionLike) -> error::Result<Vec<String>> {
         let ids: Option<Vec<String>> = redis::Cmd::hkeys("artifact:id").query(conn)?;
         match ids {
             Some(art_ids) => Ok(art_ids),
@@ -80,7 +73,41 @@ impl ArtifactDao {
         }
     }
 
-    pub fn delete(id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<()> {
+    pub fn update_build_status(artifact: &mut Artifact, rollout_error: &Option<error::GeneralError>, conn: &mut dyn ConnectionLike ) -> error::Result<()> {
+        match rollout_error {
+            None => {
+                artifact.build.stats = ArtifactStatus::Running;
+            },
+            Some(err) => {
+                match err {
+                    error::GeneralError::PendingArtRef => artifact.build.stats = ArtifactStatus::PendingArtRef,
+                    error::GeneralError::PendingAccount => artifact.build.stats = ArtifactStatus::PendingAccount,
+                    _ => artifact.build.stats = ArtifactStatus::Failed
+                };
+            }
+        }
+
+        Self::update_hash_fields(&artifact.id, "build", &[("stats", &artifact.build.stats.to_string()), ("last_sched", &artifact.build.last_sched.to_string())], conn)
+    }
+
+    pub fn update_clean_status(artifact: &mut Artifact, rollout_error: &Option<error::GeneralError>, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        match rollout_error {
+            None => {
+                artifact.clean.stats = ArtifactStatus::Running;
+            },
+            Some(err) => {
+                match err {
+                    error::GeneralError::PendingArtRef => artifact.clean.stats = ArtifactStatus::PendingArtRef,
+                    error::GeneralError::PendingAccount => artifact.clean.stats = ArtifactStatus::PendingAccount,
+                    _ => artifact.clean.stats = ArtifactStatus::Failed
+                };
+            }
+        }
+
+        Self::update_hash_fields(&artifact.id, "clean", &[("stats", &artifact.clean.stats.to_string()), ("last_sched", &artifact.build.last_sched.to_string())], conn)
+    }
+
+    pub fn delete(id: &str, conn: &mut dyn ConnectionLike) -> error::Result<()> {
         let rec_id: Option<u32> = Self::rec_id(id, conn)?;
         if let Some(rec_id) = rec_id {
             redis::pipe()
@@ -99,8 +126,8 @@ impl ArtifactDao {
         Ok(())
     }
 
-    pub fn update(&mut self, artifact: Artifact) -> error::Result<()> {
-        self.persist(artifact, true)
+    pub fn update(artifact: Artifact, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        Self::persist(artifact, true, conn)
     }
 
     fn rec_id(art_id: &str, conn: &mut dyn ConnectionLike) -> error::Result<Option<u32>> {
@@ -120,98 +147,75 @@ impl ArtifactDao {
         redis::Cmd::sadd(key, members).execute(conn);
     }
 
-    pub fn save(&mut self, artifact: Artifact) -> error::Result<()> {
-        self.persist(artifact, false)
-        //    create a new record {
-        //        redis incr artifact:last_record_id
-        //        read new_id = artifact:last_record_id
-        //        if exist hset artifact:{new_id} then
-        //            error
-        //        fi
-        //        update hset fields to artifact:{record_id} {
-        //            update {
-        //               id
-        //               total
-        //               target
-        //            }
-        //        }
-        //        update hset fileds to artifact:{record_id}:build {
-        //            update {
-        //               name
-        //               manifest
-        //            }
-        //        }
-        //        update lset list to artifact:{record_id}:build:accounts {
-        //            update accounts
-        //        }
-        //
-        //        update lset list to artifact:{record_id}:build:accounts {
-        //            update secrets
-        //        }
-        //
-        //        update lset list to artifact:{record_id}:build:art_refs{
-        //            update art_refs
-        //        }
-        //    }
-        //        update hset fileds to artifact:{record_id}:clean{
-        //            update {
-        //               name
-        //               manifest
-        //            }
-        //        }
-        //        update lset list to artifact:{record_id}:clean:accounts {
-        //            update accounts
-        //        }
-        //
-        //        update lset list to artifact:{record_id}:clean:accounts {
-        //            update secrets
-        //        }
-        //
-        //        update lset list to artifact:{record_id}:clean:art_refs{
-        //            update art_refs
-        //        }
-        //    }
+    fn update_hash_fields(art_id: &str, sub_field_id: &str, kvs: &[(&str,&str)], conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        let rec_id = Self::rec_id(art_id, conn)?;
+        if let Some(rec_id) = rec_id {
+            let hkey = if sub_field_id.is_empty() {
+                format!("artifact:{rec_id}")
+            } else {
+                format!("artifact:{rec_id}:{}", sub_field_id)
+            };
 
+            redis::Cmd::hset_multiple(hkey, kvs).execute(conn);
+            Ok(())
+        } else {
+            Err(error::error(&format!("art_id: {} does not exist", art_id)))
+        }
     }
 
-    pub fn notify(&self, conn: &mut dyn redis::ConnectionLike, channel: &str) -> error::Result<()> {
-        Ok(())
+    pub fn save(artifact: Artifact, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        Self::persist(artifact, false, conn)
     }
 
-    fn persist(&mut self, artifact: Artifact, overwritable: bool) -> error::Result<()> {
-        let record_id: u32 = redis::Cmd::incr("artifact:last_record_id", 1).query(&mut self.conn)?;
-        let record_existed: bool = redis::Cmd::exists(format!("artifact:{record_id}")).query(&mut self.conn)?;
-        if record_existed && !overwritable { return Err(error::error(&format!("record artifact:{record_id} exists"))); }
-
-        let idx_existed: bool = redis::Cmd::hexists("artifact:id", artifact.id.clone()).query(&mut self.conn)?;
+    fn persist(artifact: Artifact, overwritable: bool, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        let idx_existed: bool = redis::Cmd::hexists("artifact:id", artifact.id.clone()).query(conn)?;
         if idx_existed && !overwritable { return Err(error::error(&format!("record index '{}' exists in artifact:id", artifact.id))); }
 
-        redis::Cmd::hset("artifact:id", artifact.id.clone(), record_id).execute(&mut self.conn);
+        // let record_existed: bool = redis::Cmd::exists(format!("artifact:{record_id}")).query(conn)?;
+        // if record_existed && !overwritable { return Err(error::error(&format!("record artifact:{record_id} exists"))); }
+
+        let record_id: Option<u32> = if idx_existed {
+            Self::rec_id(&artifact.id, conn)?
+        } else {
+            redis::Cmd::incr("artifact:last_record_id", 1).query(conn)?
+        };
+
+        if let Some(record_id) = record_id {
+            Self::write_record(record_id, artifact, conn)
+        } else {
+            Err(error::error(&format!("Failed to acquire record id for the artifact: {}", &artifact.id)))
+        }
+    }
+
+    fn write_record(record_id: u32, artifact: Artifact, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        redis::Cmd::hset("artifact:id", &artifact.id, record_id).execute(conn);
         redis::Cmd::hset_multiple(format!("artifact:{record_id}"), &[
                                   ("id", artifact.id),
                                   ("total", artifact.total.to_string()),
-                                  ("target", artifact.target.to_string()) ]).execute(&mut self.conn);
+                                  ("target", artifact.target.to_string()) ]).execute(conn);
         redis::Cmd::hset_multiple(format!("artifact:{record_id}:build"), &[
                                   ("name", artifact.build.name),
                                   ("stats", artifact.build.stats.to_string()),
                                   ("last_sched", artifact.build.last_sched.to_string()),
-                                  ("manifest", artifact.build.manifest) ]).execute(&mut self.conn);
-        Self::update_list(&format!("artifact:{record_id}:build:accounts"), &artifact.build.accounts.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
-        Self::update_list(&format!("artifact:{record_id}:build:secrets"), &artifact.build.secrets.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
-        Self::update_list(&format!("artifact:{record_id}:build:art_refs"), &artifact.build.art_refs.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
+                                  ("manifest", artifact.build.manifest) ]).execute(conn);
+        Self::update_list(&format!("artifact:{record_id}:build:accounts"), &artifact.build.accounts.into_iter().map(|v| v.name).collect::<Vec<String>>(), conn);
+        Self::update_list(&format!("artifact:{record_id}:build:secrets"), &artifact.build.secrets.into_iter().map(|v| v.name).collect::<Vec<String>>(), conn);
+        Self::update_list(&format!("artifact:{record_id}:build:art_refs"), &artifact.build.art_refs.into_iter().map(|v| v.name).collect::<Vec<String>>(), conn);
 
         redis::Cmd::hset_multiple(format!("artifact:{record_id}:clean"), &[
                                   ("name", artifact.clean.name),
                                   ("stats", artifact.clean.stats.to_string()),
                                   ("last_sched", artifact.clean.last_sched.to_string()),
-                                  ("manifest", artifact.clean.manifest) ]).execute(&mut self.conn);
-        Self::update_list(&format!("artifact:{record_id}:clean:accounts"), &artifact.clean.accounts.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
-        Self::update_list(&format!("artifact:{record_id}:clean:secrets"), &artifact.clean.secrets.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
-        Self::update_list(&format!("artifact:{record_id}:clean:art_refs"), &artifact.clean.art_refs.into_iter().map(|v| v.name).collect::<Vec<String>>(), &mut self.conn);
+                                  ("manifest", artifact.clean.manifest) ]).execute(conn);
+        Self::update_list(&format!("artifact:{record_id}:clean:accounts"), &artifact.clean.accounts.into_iter().map(|v| v.name).collect::<Vec<String>>(), conn);
+        Self::update_list(&format!("artifact:{record_id}:clean:secrets"), &artifact.clean.secrets.into_iter().map(|v| v.name).collect::<Vec<String>>(), conn);
+        Self::update_list(&format!("artifact:{record_id}:clean:art_refs"), &artifact.clean.art_refs.into_iter().map(|v| v.name).collect::<Vec<String>>(), conn);
 
         Ok(())
     }
+
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_save_and_load_artifact() {
-        let mut conn = redis::Client::open("redis://127.0.0.1").unwrap().get_connection().unwrap();
+        let mut conn = redis::Client::open("redis://127.0.0.1").unwrap().get_connection().unwrap() ;
         ArtifactDao::delete("Toronto1", &mut conn).expect("Failed to delete artifact Toronto1");
         let artifact = Artifact {
             id: "Toronto1".to_owned(),
@@ -250,12 +254,9 @@ mod tests {
             }
         };
 
-        let mut dao = ArtifactDao {
-            conn
-        };
-        dao.save(artifact.clone()).expect("failed to save artifact dao");
+        ArtifactDao::save(artifact.clone(), &mut conn).expect("failed to save artifact dao");
 
-        let loaded_artifact = ArtifactDao::one("Toronto1", &mut dao.conn).expect("Failed to load Artifact");
+        let loaded_artifact = ArtifactDao::one("Toronto1", &mut conn).expect("Failed to load Artifact");
         assert_eq!(artifact, loaded_artifact);
 
     }

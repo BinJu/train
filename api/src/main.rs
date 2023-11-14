@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 use hyper::{Body, Request, Response, server::Server};
 use hyper::service::{make_service_fn, service_fn};
-use train_lib::artifact::artifact_dao::{ArtifactDao,connection};
+use train_lib::artifact::dao::{ArtifactDao,connection};
 use train_lib::queue;
 use train_lib::{error, artifact::{Artifact, ArtifactRequest}};
 
@@ -59,12 +59,13 @@ async fn handler_secret(req: Request<Body>) -> Result<Response<Body>, Infallible
 async fn save_artifact(data: &[u8]) -> error::Result<String>{
     let str_data = std::str::from_utf8(data).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("Failed to deserialize utf8: {err}")))?;
     
-    let artifact_request: ArtifactRequest = serde_json::from_str(str_data).expect("failed to deserialize the artifact request");
+    let mut artifact_request: ArtifactRequest = serde_json::from_str(str_data)?;
     artifact_request.validate().expect("Failed to validate the request");
+    artifact_request.format()?;
     let artifact = Artifact::try_from(artifact_request)?;
-    let mut dao = ArtifactDao { conn : connection(DEFAULT_REDIS_URL).expect(&format!("Failed to open redis connection on {DEFAULT_REDIS_URL}"))};
+    let mut conn = connection(DEFAULT_REDIS_URL).expect(&format!("Failed to open redis connection on {DEFAULT_REDIS_URL}"));
     let art_id = artifact.id.clone();
-    dao.save(artifact)?;
+    ArtifactDao::save(artifact, &mut conn)?;
     Ok(art_id)
 }
 

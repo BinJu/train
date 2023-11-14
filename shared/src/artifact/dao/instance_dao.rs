@@ -1,17 +1,15 @@
-use redis::{ConnectionLike, Connection};
-use super::instance::{Instance, InstanceStatus};
+use redis::ConnectionLike;
+use super::super::instance::Instance;
 use crate::error;
 
 use std::collections::HashMap;
 
-pub struct InstanceDao {
-    pub conn: Connection
-}
+pub struct InstanceDao;
 
 impl InstanceDao {
-    pub fn one(id: &str, art_id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<Instance> {
+    pub fn one(id: &str, art_id: &str, conn: &mut dyn ConnectionLike) -> error::Result<Instance> {
         let idx_existed: bool = redis::Cmd::sismember(format!("instance:{}", art_id), id).query(conn)?;
-        if !idx_existed { return Err(error::error(&format!("record index id: {} exists in instance:{}", id, art_id)))}
+        if !idx_existed { return Err(error::error(&format!("record index id: {} does not exist in instance:{}", id, art_id)))}
 
         let results: Option<HashMap<String,String>> = redis::Cmd::hgetall(format!("instance:{}:{}:results", art_id, id)).query(conn)?;
         let record: Option<HashMap<String,String>> = redis::Cmd::hgetall(format!("instance:{}:{}", art_id, id)).query(conn)?;
@@ -30,7 +28,7 @@ impl InstanceDao {
         }
     }
 
-    pub fn many(art_id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<Vec<Instance>> {
+    pub fn many(art_id: &str, conn: &mut dyn ConnectionLike) -> error::Result<Vec<Instance>> {
         let inst_ids: Option<Vec<String>> = redis::Cmd::smembers(format!("instance:{}", art_id)).query(conn)?;
         if inst_ids.is_none() { return Ok(Vec::new()) }
         let inst_ids = inst_ids.unwrap();
@@ -42,7 +40,7 @@ impl InstanceDao {
         Ok(result)
     }
 
-    pub fn delete(id: &str, art_id: &str, conn: &mut dyn redis::ConnectionLike) -> error::Result<()> {
+    pub fn delete(id: &str, art_id: &str, conn: &mut dyn ConnectionLike) -> error::Result<()> {
         redis::pipe()
             .del(format!("instance:{}:{}:results", art_id, id)).ignore()
             .del(format!("instance:{}:{}", art_id, id)).ignore()
@@ -51,30 +49,23 @@ impl InstanceDao {
         Ok(())
     }
 
-    pub fn update(&mut self, instance: Instance) -> error::Result<()> {
-        self.persist(instance, true)
+    pub fn update(instance: Instance, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        Self::persist(instance, true, conn)
     }
 
-    fn record(rec_id: u32, conn: &mut dyn ConnectionLike) -> error::Result<Option<HashMap<String,String>>> {
-        let record: Option<HashMap<String,String>> = redis::Cmd::new().arg("HGETALL").arg(format!("artifact:{rec_id}")).query(conn)?;
-        Ok(record)
+    pub fn update_stats(id: &str, art_id: &str, stats: &str, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        redis::Cmd::hset(format!("instance:{}:{}", art_id, id), "stat", stats).execute(conn);
+        Ok(())
     }
 
-    fn update_list(key: &str, members: &[String], conn: &mut dyn ConnectionLike) {
-        if members.is_empty() {
-            return
-        }
-        redis::Cmd::sadd(key, members).execute(conn);
+    pub fn save(instance: Instance, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        Self::persist(instance, false, conn)
     }
 
-    pub fn save(&mut self, instance: Instance) -> error::Result<()> {
-        self.persist(instance, false)
-    }
-
-    fn persist(&mut self, instance: Instance, overwritable: bool) -> error::Result<()> {
-        let idx_existed = redis::Cmd::sismember(format!("instance:{}", instance.art_id), instance.id.clone()).query(&mut self.conn)?;
+    fn persist(instance: Instance, overwritable: bool, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        let idx_existed = redis::Cmd::sismember(format!("instance:{}", instance.art_id), instance.id.clone()).query(conn)?;
         if idx_existed && !overwritable { return Err(error::error(&format!("record index instance:{} exists", instance.art_id)))}
-        let record_existed: bool = redis::Cmd::exists(format!("instance:{}:{}", instance.art_id, instance.id)).query(&mut self.conn)?;
+        let record_existed: bool = redis::Cmd::exists(format!("instance:{}:{}", instance.art_id, instance.id)).query(conn)?;
         if record_existed && !overwritable { return Err(error::error(&format!("record instance:{}:{} exists", instance.art_id, instance.id)))}
 
         redis::Cmd::hset_multiple(format!("instance:{}:{}", instance.art_id, instance.id.clone()), &[
@@ -82,17 +73,17 @@ impl InstanceDao {
                                   ("art_id", instance.art_id.clone()),
                                   ("run_name", instance.run_name),
                                   ("dirt", instance.dirt.to_string()),
-                                  ("stat", instance.stat.to_string())]).execute(&mut self.conn);
+                                  ("stat", instance.stat.to_string())]).execute(conn);
 
         if let Some(results) = instance.results {
             let mut kvs: Vec<(&str,&str)> = Vec::new();
             for (k,v) in results.iter() {
                 kvs.push((k,v))
             }
-            redis::Cmd::hset_multiple(format!("instance:{}:{}:results", instance.art_id, instance.id), &kvs).execute(&mut self.conn);
+            redis::Cmd::hset_multiple(format!("instance:{}:{}:results", instance.art_id, instance.id), &kvs).execute(conn);
         }
 
-        redis::Cmd::sadd(format!("instance:{}", instance.art_id), instance.id.clone()).execute(&mut self.conn);
+        redis::Cmd::sadd(format!("instance:{}", instance.art_id), instance.id.clone()).execute(conn);
         Ok(())
     }
 }
@@ -100,6 +91,7 @@ impl InstanceDao {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::artifact::instance::InstanceStatus;
 
     #[test]
     fn test_save_and_load_instance() {
@@ -113,9 +105,8 @@ mod tests {
             stat: InstanceStatus::Running,
             results: Some(HashMap::from([("url".to_owned(), "https://cold-1234.cf-app.com".to_owned()), ("username".to_owned(), "pivotalAA".to_owned()), ("password".to_owned(), "tjax21".to_owned())]))
         };
-        let mut dao = InstanceDao{conn};
-        dao.save(instance.clone()).expect("failed to save the instance");
-        let new_instance = InstanceDao::one("cold-1234", "opsman", &mut dao.conn).expect("failed to load instance");
+        InstanceDao::save(instance.clone(), &mut conn).expect("failed to save the instance");
+        let new_instance = InstanceDao::one("cold-1234", "opsman", &mut conn).expect("failed to load instance");
         assert_eq!(instance, new_instance);
     }
 }

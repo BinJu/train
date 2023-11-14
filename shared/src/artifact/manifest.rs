@@ -7,7 +7,7 @@ pub const TEKTON_DEV_V1: &str = "tekton.dev/v1";
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "'de: 'a"))]
 pub struct TaskManifest<'a> {
-    pub name: &'a str,
+    pub name: String,
     pub spec: TaskSpec<'a>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "paramValues", deserialize = "paramValues"))]
@@ -23,14 +23,13 @@ pub struct Task<'a> {
     #[serde(rename(serialize = "apiVersion", deserialize = "apiVersion"))]
     pub api_version: &'a str,
     pub kind: &'a str,
-    pub metadata: Metadata<'a>,
+    pub metadata: Metadata,
     pub spec: TaskSpec<'a>
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct Metadata<'a> {
-    pub name: &'a str
+pub struct Metadata {
+    pub name: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -212,7 +211,7 @@ pub struct Pipeline<'a> {
     #[serde(rename(serialize = "apiVersion", deserialize = "apiVersion"))]
     pub api_version: &'a str,
     pub kind: &'a str,
-    pub metadata: Metadata<'a>,
+    pub metadata: Metadata,
     pub spec: PipelineSpec<'a>
 }
 
@@ -227,10 +226,11 @@ pub struct PipelineSpec<'a> {
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct TaskDef<'a> {
-    pub name: &'a str,
+    pub name: String,
     #[serde(rename(serialize = "taskRef", deserialize = "taskRef"))]
-    pub task_ref: TaskRef<'a>,
+    pub task_ref: TaskRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "runAfter", deserialize = "runAfter"))]
     pub run_after: Option<Vec<&'a str>>,
@@ -240,8 +240,8 @@ pub struct TaskDef<'a> {
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct TaskRef<'a> {
-    pub name: &'a str
+pub struct TaskRef {
+    pub name: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -271,7 +271,7 @@ pub struct Secret<'a> {
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SecretMetadata<'a> {
-    pub name: &'a str,
+    pub name: String,
     pub namespace: &'a str
 }
 
@@ -296,7 +296,7 @@ impl <'a>Manifest<'a> {
 }
 
 impl <'a> Secret<'a> {
-    pub fn new(name: &'a str, namespace: &'a str, kvs: HashMap<&'a str, &'a str>) -> Self {
+    pub fn new(name: String, namespace: &'a str, kvs: HashMap<&'a str, &'a str>) -> Self {
         Secret {
             api_version: "v1",
             kind: "Secret",
