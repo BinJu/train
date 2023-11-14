@@ -12,7 +12,6 @@ use std::collections::HashMap;
 use instance::{Instance, InstanceStatus};
 
 pub const DEFAULT_NAMESPACE: &str = "train";
-pub const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1";
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "'de: 'a"))]

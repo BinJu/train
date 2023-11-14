@@ -1,6 +1,6 @@
 use std::thread::{self, JoinHandle};
 
-use train_lib::{artifact::{dao::ArtifactDao, dao::InstanceDao, DEFAULT_REDIS_URL}, error, *};
+use train_lib::{artifact::dao::{ArtifactDao, InstanceDao, DEFAULT_REDIS_URL}, error, *};
 
 //TODO: Reconciller's main tasks:
 //1. Scan all the artifacts that are under status:
@@ -46,7 +46,7 @@ fn sync_instances_with_stats_callback(callback: impl Clone+FnOnce(&str,&str)->er
     // Then load instances, with the 'run_name' we could query the TaskRun/PipelineRun status. If
     // it is done, we should populate the 'results'.
     //
-    //TODO: results
+    //TODO: handle the results if it is succeeded.
 
 }
 
@@ -77,20 +77,37 @@ where T: 'static + FnOnce()-> error::Result<()> + Sync + Send + Clone{
 
 #[cfg(test)]
 mod tests {
-    use train_lib::artifact::{Artifact, ArtifactRequest, pipeline};
+    use train_lib::{artifact::{Artifact, ArtifactRequest, pipeline, dao::{self, ArtifactDao, InstanceDao}, instance::InstanceStatus}, scheduler, queue::Queue};
     use serde_json;
+
+    use crate::sync_instances_with_stats_callback;
     #[test]
     fn test_sync_instances() {
-        //pipeline
         pipeline::delete_run("--all", "train").unwrap();
+        let art_id = "recon-sample";
         let request = r#"{"name":"recon-sample","total":1,"target":1,"refs":[{"name":"mock"}],"build":{"tasks":[{"name":"arttest-task1","spec":{"steps":[{"name":"step1","image":"ubuntu","script":"echo $(params.name)\necho with art_id:"}],"params":[{"name":"name","type":"string","description":"The username"}]},"paramValues":[{"name":"name","value":"John"}]}],"params":[{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"secrets":[{"name":"aws-route53"},{"name":"pivnet"}],"accounts":[{"name":"gcp-environment"}]},"clean":{"tasks":[{"name":"task1","spec":{"steps":[{"name":"step1","image":"ubuntu","script":"echo $(params.name)\necho with art_id:"}],"params":[{"name":"name","type":"string","description":"The username"}]},"paramValues":[{"name":"name","value":"John"}]}],"params":[{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"secrets":[{"name":"aws_route53"},{"name":"pivnet"}],"accounts":[{"name":"gcp_environment"}]}}"#;
 
+        let mut conn = dao::connection(dao::DEFAULT_REDIS_URL).expect(&format!("Failed to establish connection to redis server at: {}", dao::DEFAULT_REDIS_URL));
+        ArtifactDao::delete(art_id, &mut conn).unwrap();
+        let instances = InstanceDao::many(art_id, &mut conn).unwrap();
+        for inst in instances {
+            InstanceDao::delete(&inst.id, art_id, &mut conn).unwrap();
+        }
         let mut request: ArtifactRequest = serde_json::from_str(request).expect("Failed to deserialize the payload to ArtifactRequest object");
         request.format().expect("Failed to format the artifact request");
 
-        let mut artifact = Artifact::try_from(request).expect("Failed to deserialize artifact from artifact request");
-        //let manifest_yaml = artifact.build.manifest;
-        //pipeline::apply(manifest_yaml, DEFAULT_NAMESPACE).expect("Fail to apply manifest to kubernetets");
-        let instances = artifact.build.run(1).expect("Failed to roll out the artifct");
+        let artifact = Artifact::try_from(request).expect("Failed to deserialize artifact from artifact request");
+        ArtifactDao::save(artifact, &mut conn).unwrap();
+        //schedule the artifact by calling schedule.process
+        //let instances = artifact.build.run(1).expect("Failed to roll out the artifct");
+        let queue = Queue::new("reconciller-test".to_owned());
+        queue.reset(&mut conn).unwrap();
+        queue.enqueue(art_id, &mut conn).unwrap();
+
+        let instance_ids = scheduler::process(&queue).unwrap();
+        sync_instances_with_stats_callback(|_run_name, _ns| Ok("Succeeded".to_owned())).unwrap();
+
+        let instance = InstanceDao::one(&instance_ids[0], "recon-sample", &mut conn).unwrap();
+        assert_eq!(instance.stat, InstanceStatus::Succeeded);
     }
 }

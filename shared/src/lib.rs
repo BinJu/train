@@ -2,6 +2,7 @@ pub mod error;
 pub mod artifact;
 pub mod resource;
 pub mod queue;
+pub mod scheduler;
 mod command;
 
 #[cfg(test)]

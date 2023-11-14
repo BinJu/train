@@ -80,7 +80,9 @@ impl InstanceDao {
             for (k,v) in results.iter() {
                 kvs.push((k,v))
             }
-            redis::Cmd::hset_multiple(format!("instance:{}:{}:results", instance.art_id, instance.id), &kvs).execute(conn);
+            if kvs.len() > 0 {
+                redis::Cmd::hset_multiple(format!("instance:{}:{}:results", instance.art_id, instance.id), &kvs).execute(conn);
+            }
         }
 
         redis::Cmd::sadd(format!("instance:{}", instance.art_id), instance.id.clone()).execute(conn);
