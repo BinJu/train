@@ -1,0 +1,7 @@
+VERSION 0.7
+
+src:
+    FROM scratch
+    COPY src/ shared/src/
+    COPY Cargo.* shared/
+    SAVE ARTIFACT /shared

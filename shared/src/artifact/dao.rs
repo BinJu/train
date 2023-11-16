@@ -4,7 +4,7 @@ mod instance_dao;
 pub use artifact_dao::ArtifactDao;
 pub use instance_dao::InstanceDao;
 
-pub const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1";
+pub const DEFAULT_REDIS_URL: &str = "redis://train-redis";
 
 use crate::error;
 

@@ -1,0 +1,22 @@
+VERSION 0.7
+
+src:
+    FROM rust
+    COPY  ./src reconciller/src/
+    COPY Cargo.toml reconciller/
+    COPY ../shared+src/shared shared
+    SAVE ARTIFACT reconciller
+
+build:
+    FROM +src
+    WORKDIR /reconciller/
+    RUN cargo build -r
+    SAVE ARTIFACT target/release/reconciller
+
+image:
+    # FROM --platform=linux/amd64 gcr.io/distroless/static:nonroot
+    # FROM debian:stable-20200803-slim
+    FROM rust
+    COPY +build/reconciller  /usr/local/bin/
+    ENTRYPOINT ["/usr/local/bin/reconciller"]
+    SAVE IMAGE reconciller

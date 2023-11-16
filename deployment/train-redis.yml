@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: train-redis
+  labels:
+    app.kubernetes.io/name: train-redis
+spec:
+  serviceName: train-redis
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: train-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: train-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:6.2.5
+        command: ["redis-server"]
+        ports:
+        - containerPort: 6379
+          name: client
+        - containerPort: 16379
+          name: gossip
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        hostPath:
+          path: /redis-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: train-redis
+spec:
+  selector:
+    app.kubernetes.io/name: train-redis
+  ports:
+  - name: train-redis-port
+    protocol: TCP
+    port: 6379
+    targetPort: client

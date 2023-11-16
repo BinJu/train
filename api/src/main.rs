@@ -5,7 +5,7 @@ use train_lib::artifact::dao::{ArtifactDao,connection};
 use train_lib::queue;
 use train_lib::{error, artifact::{Artifact, ArtifactRequest}};
 
-const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1";
+const DEFAULT_REDIS_URL: &str = "redis://train-redis";
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn 'static + std::error::Error + Send + Sync>>{
     env_logger::init();    
@@ -14,7 +14,7 @@ pub async fn main() -> Result<(), Box<dyn 'static + std::error::Error + Send + S
         async { Ok::<_, Infallible>(service_fn(handler)) }
     });
 
-    let addr = ([127,0,0,1], 3200).into();
+    let addr = ([0,0,0,0], 3200).into();
     let server = Server::bind(&addr).serve(make_svc);
 
     log::info!("Listening on http://{}", addr);

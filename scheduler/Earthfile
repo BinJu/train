@@ -1,0 +1,22 @@
+VERSION 0.7
+
+src:
+    FROM rust
+    COPY  ./src scheduler/src/
+    COPY Cargo.toml scheduler/
+    COPY ../shared+src/shared shared
+    SAVE ARTIFACT scheduler
+
+build:
+    FROM +src
+    WORKDIR /scheduler/
+    RUN cargo build -r
+    SAVE ARTIFACT target/release/scheduler
+
+image:
+    # FROM --platform=linux/amd64 gcr.io/distroless/static:nonroot
+    # FROM debian:stable-20200803-slim
+    FROM rust
+    COPY +build/scheduler  /usr/local/bin/
+    ENTRYPOINT ["/usr/local/bin/scheduler"]
+    SAVE IMAGE scheduler
