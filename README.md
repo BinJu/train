@@ -1,6 +1,6 @@
 # Why is the project
 This project add a thin layer `artifact` onto `tekton` to manage the deployments on Kubernetes.
-`account`s and `secret` are supported to ease the deployment.
+`account`s and `secret`s are supported to ease the deployment.
 
 # How to work with this project
 This project creates an API server based on kubernetes.
