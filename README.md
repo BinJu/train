@@ -1,5 +1,6 @@
 # Why is the project
-This project help to create, manage, and release artifacts.
+This project add a thin layer `artifact` onto `tekton` to manage the deployments on Kubernetes.
+`account`s and `secret` are supported to ease the deployment.
 
 # How to work with this project
 This project creates an API server based on kubernetes.
@@ -7,7 +8,7 @@ Users interacts with API to create, get, list and delete the artifacts.
 
 ## Create
 ### Create an artifact
-Users can `POST /api/v1/art?req=${JSON_DATA}`
+Users can `POST /api/v1/art with the data ${JSON_DATA}`
 
 The minimum example of the artifact request is as below:
 
