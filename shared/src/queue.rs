@@ -9,6 +9,7 @@ pub struct Queue {
 
 impl Queue {
     pub fn enqueue(&self, art_id: &str, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        log::info!("Enqueue the artifact: {} to the queue: {}", art_id, &self.name);
         redis::Cmd::rpush(&self.name, art_id).execute(conn);
         Ok(())
     }

@@ -21,10 +21,16 @@ deploy-to-kind:
             && docker push localhost:5000/reconciller
     END
 
-    RUN kubectl apply -f deployment/train-redis.yml
-    RUN kubectl apply -f deployment/train-api.yml
-    RUN kubectl apply -f deployment/train-scheduler.yml
-    RUN kubectl apply -f deployment/train-reconciller.yml
+    WAIT
+        RUN kubectl apply -f deployment/train-redis.yml
+        RUN kubectl apply -f deployment/train-api.yml
+        RUN kubectl apply -f deployment/train-scheduler.yml
+        RUN kubectl apply -f deployment/train-reconciller.yml
+    END
+
+    RUN kubectl rollout restart deployment/train-api \
+        && kubectl rollout restart deployment/scheduler \
+        && kubectl rollout restart deployment/reconciller
 
 deploy-to-kube:
 

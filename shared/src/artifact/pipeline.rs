@@ -104,6 +104,9 @@ pub fn pipeline_run_stats(run_name: &str, namespace: &str) -> Result<String> {
     let jq_status = command::command_with_args("jq", ["-r", ".status.conditions|.[].reason"]);
     let output = command::pipe_run(&mut [pipeline_run_describe, jq_status])?;
     let output_text = String::from_utf8_lossy(&output.stdout);
+    println!("pipeline logs status: {}", output.status);
+    println!("pipeline logs output: {}", output_text);
+    println!("pipeline logs stderr: {}", String::from_utf8_lossy(&output.stderr[..]));
     Ok(output_text.trim_end_matches("\n").to_string())
 }
 

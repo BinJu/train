@@ -27,6 +27,15 @@ pub struct InstanceNumbers {
     pub done_dirt: u32
 }
 
+impl InstanceStatus {
+    pub fn is_failed(&self) -> bool {
+        if let Self::Failed(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+}
 impl Default for InstanceStatus {
     fn default() -> Self {
         InstanceStatus::Unknown

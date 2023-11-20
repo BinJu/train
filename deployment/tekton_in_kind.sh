@@ -108,7 +108,7 @@ nodes:
     - containerPort: 443
       hostPort: 8443
     extraMounts:
-    - hostPath: /home/binj/workspace/volume_redis
+    - hostPath: /home/binj/workspace/kind_volume/redis
       containerPath: /redis-data
   - role: worker
   - role: worker

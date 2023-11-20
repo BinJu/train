@@ -6,10 +6,12 @@ pub fn process(queue: &queue::Queue) -> error::Result<Vec<String>> {
         // Block on reading the head of the list.
     let mut conn = dao::connection(DEFAULT_REDIS_URL).expect(&format!("Failed to establish connection to redis server at: {}", DEFAULT_REDIS_URL));
     let art_id = queue.block_dequeue(0, &mut conn)?;
+    log::info!("Dequeuing the artifact: {} ", art_id);
     let mut artifact = ArtifactDao::one(&art_id, &mut conn)?;
     let instances = InstanceDao::many(&art_id, &mut conn)?;
     let numbers = statistic_instances(&instances)?;
     let to_deploy = numbers_to_deploy(&artifact, &numbers);
+    log::info!("{} environments are await to deploy ", to_deploy);
     let rollout_result = rollout_artifact(&mut artifact, to_deploy);
     let (rollout_ok, rollout_err) = multiplex_result(rollout_result);
     //update_artifact(artifact, to_deploy, rollout_result)?;
@@ -27,6 +29,10 @@ pub fn process(queue: &queue::Queue) -> error::Result<Vec<String>> {
             InstanceDao::save(inst, &mut conn)?;
         }
     }
+    if let Some(err) = rollout_err {
+        log::warn!("Failed to rollout the deploy: {} ", err);
+    }
+
     Ok(result)
 }
 

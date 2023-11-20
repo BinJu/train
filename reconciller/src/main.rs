@@ -1,6 +1,6 @@
 use std::thread::{self, JoinHandle};
 
-use train_lib::{artifact::dao::{ArtifactDao, InstanceDao, DEFAULT_REDIS_URL}, error, *};
+use train_lib::{artifact::{dao::{ArtifactDao, InstanceDao, DEFAULT_REDIS_URL}, ArtifactStatus, instance::InstanceStatus}, error, *};
 
 //TODO: Reconciller's main tasks:
 //1. Scan all the artifacts that are under status:
@@ -30,18 +30,47 @@ fn sync_instances() -> error::Result<()> {
 
 fn sync_instances_with_stats_callback(callback: impl Clone+FnOnce(&str,&str)->error::Result<String>) -> error::Result<()> {
     // Load artifacts
+    log::info!("Start synchronizing tekton run status");
     let mut conn = redis::Client::open(DEFAULT_REDIS_URL)?.get_connection()?;
     let art_ids = ArtifactDao::all_ids(&mut conn)?;
     for id in art_ids {
+        log::info!("Querying instances ...");
         let instances = InstanceDao::many(&id, &mut conn)?;
+        let mut build_statuses = Vec::new();
+        let mut clean_statuses = Vec::new();
+        log::info!("Instances Query done.");
         for mut inst in instances {
             let run_name = &inst.run_name;
+            log::info!("Checking status of tekton run: {}.", run_name);
             let callback_fn = callback.clone();
             let stat = callback_fn(run_name, artifact::DEFAULT_NAMESPACE)?;
+            log::info!("Status of tekton run: {} is {}.", run_name, stat);
             inst.stat = stat.into();
+            if run_name.starts_with("build-") {
+                build_statuses.push(inst.stat.clone());
+            } else {
+                clean_statuses.push(inst.stat.clone());
+            }
             InstanceDao::update(inst, &mut conn)?;
+            log::info!("Status updated");
         }
+        let build_failed = build_statuses.iter().any(|v| v.is_failed());
+        let build_succeeded = build_statuses.iter().all(|v| *v == InstanceStatus::Succeeded);
+        if build_failed {
+            ArtifactDao::update_rollout_status(&id, "build", ArtifactStatus::Failed, &mut conn)?;
+        } else if build_succeeded && build_statuses.len() > 0 {
+            ArtifactDao::update_rollout_status(&id, "build", ArtifactStatus::Succeeded, &mut conn)?;
+        };
+
+        let clean_failed = clean_statuses.iter().any(|v| v.is_failed());
+        let clean_succeeded = clean_statuses.iter().all(|v| *v == InstanceStatus::Succeeded);
+        if clean_failed {
+            ArtifactDao::update_rollout_status(&id, "clean", ArtifactStatus::Failed, &mut conn)?;
+        } else if clean_succeeded && clean_statuses.len() > 0 {
+            ArtifactDao::update_rollout_status(&id, "clean", ArtifactStatus::Succeeded, &mut conn)?;
+        };
     }
+    log::info!("synchronization is done.");
     Ok(())
     // Then load instances, with the 'run_name' we could query the TaskRun/PipelineRun status. If
     // it is done, we should populate the 'results'.

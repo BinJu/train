@@ -173,12 +173,16 @@ impl Rollout {
         self.last_sched = Local::now();
         let mut result = Vec::new();
         let secrets = self.prepare_secrets(&self.name)?;
+        log::info!("applying secrets");
         Self::apply_secrets(&secrets)?;
+        log::info!("applied.");
         // to remove the instance.
         // Check the ArtRefs 
         // Apply secret
         // Make sure the manifest is updated
+        log::info!("applying manifest: {}", self.manifest);
         pipeline::apply(self.manifest.clone(), DEFAULT_NAMESPACE)?;
+        log::info!("applied.");
         let pipeline_prefix = if copies >= 0 { "build" } else { copies = -copies; "clean" };
         for _i in 0..copies {
             let inst_id = format!("{}-{}", naming::word(None), naming::random_id());

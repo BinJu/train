@@ -16,13 +16,11 @@ spec:
     spec:
       containers:
       - name: redis
-        image: redis:6.2.5
+        image: redis
         command: ["redis-server"]
         ports:
         - containerPort: 6379
           name: client
-        - containerPort: 16379
-          name: gossip
         volumeMounts:
         - name: data
           mountPath: /data

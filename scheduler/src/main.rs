@@ -12,6 +12,7 @@ fn main() {
     //TODO:
     // 1. scheduler should read the redis list (from the head), if there is not item read, pending.
     // 2. the api should push the new artifact to the end of the list.
+    log::info!("start scheduler");
     let queue = queue::Queue::new(queue::DEFAULT_QUEUE_NAME.to_owned());
     loop {
         if let Err(err) = scheduler::process(&queue) {

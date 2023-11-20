@@ -17,14 +17,14 @@ image:
     # FROM --platform=linux/amd64 gcr.io/distroless/static:nonroot
     # FROM debian:stable-20200803-slim
     FROM rust
-    RUN apt-get update \
-        && apt-get install -y gnupg \
-        && mkdir -p /root/.gnupg/ \
-        && mkdir -p /etc/apt/keyrings/ \
-        && gpg --no-default-keyring --keyring /etc/apt/keyrings/tektoncd.gpg --keyserver keyserver.ubuntu.com --recv-keys 3EFE0E0A2F2F60AA \
-        && echo "deb [signed-by=/etc/apt/keyrings/tektoncd.gpg] http://ppa.launchpad.net/tektoncd/cli/ubuntu eoan main" | tee /etc/apt/sources.list.d/tektoncd-ubuntu-cli.list \
-        && apt-get update \
-        && apt-get install -y tektoncd-cli
+    RUN apt-get update && apt-get install -y jq
+    RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+        && install kubectl /usr/local/bin/ \
+	&& rm kubectl
+    RUN curl -LO "https://github.com/tektoncd/cli/releases/download/v0.33.0/tektoncd-cli-0.33.0_Linux-64bit.deb" \
+        && dpkg -i tektoncd-cli-0.33.0_Linux-64bit.deb \
+	&& rm tektoncd-cli-0.33.0_Linux-64bit.deb
+
     COPY +build/scheduler  /usr/local/bin/
     ENTRYPOINT ["/usr/local/bin/scheduler"]
     SAVE IMAGE scheduler

@@ -17,7 +17,13 @@ spec:
       containers:
         - name: scheduler
           image: localhost:5000/scheduler
-          imagePullPolicy: IfNotPresent 
           env:
             - name: RUST_LOG
               value: info
+          volumeMounts:
+            - name: conf
+              mountPath: /root/.kube
+      volumes:
+        - name: conf
+          secret:
+            secretName: kube-config # create the secret with the key `config` from the file `~/.kube/config`

@@ -107,6 +107,10 @@ impl ArtifactDao {
         Self::update_hash_fields(&artifact.id, "clean", &[("stats", &artifact.clean.stats.to_string()), ("last_sched", &artifact.build.last_sched.to_string())], conn)
     }
 
+    pub fn update_rollout_status(art_id: &str, rollout_type: &str, stat: ArtifactStatus, conn: &mut dyn ConnectionLike) -> error::Result<()> {
+        Self::update_hash_fields(art_id, rollout_type, &[("stats", &stat.to_string())], conn)
+    }
+
     pub fn delete(id: &str, conn: &mut dyn ConnectionLike) -> error::Result<()> {
         let rec_id: Option<u32> = Self::rec_id(id, conn)?;
         if let Some(rec_id) = rec_id {
