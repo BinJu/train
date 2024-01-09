@@ -4,6 +4,7 @@ use hyper::service::{make_service_fn, service_fn};
 use train_lib::artifact::dao::{ArtifactDao,connection};
 use train_lib::queue;
 use train_lib::{error, artifact::{Artifact, ArtifactRequest}};
+use hyper::Method;
 
 const DEFAULT_REDIS_URL: &str = "redis://train-redis";
 #[tokio::main]
@@ -26,9 +27,9 @@ pub async fn main() -> Result<(), Box<dyn 'static + std::error::Error + Send + S
 
 async fn handler(req: Request<Body>) -> Result<Response<Body>, Infallible> {
     let path = req.uri().path();
-    match path {
-        "/api/v1/art" => handler_artifact(req).await,
-        "/api/v1/sec" => handler_secret(req).await,
+    match (req.method(), path) {
+        (&Method::GET,"/api/v1/art") => handler_artifact(req).await,
+        (&Method::GET, "/api/v1/sec") => handler_secret(req).await,
         _ => Ok(Response::new(Body::from(format!("Hello World from: {}", path))))
     }
 }

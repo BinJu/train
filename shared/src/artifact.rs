@@ -5,11 +5,12 @@ pub mod dao;
 
 mod naming;
 
+pub use instance::{Instance, InstanceStatus};
+
 use crate::error;
 use chrono::{DateTime,  Local};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use instance::{Instance, InstanceStatus};
 
 pub const DEFAULT_NAMESPACE: &str = "train";
 

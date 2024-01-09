@@ -8,9 +8,9 @@ pub fn apply<S: AsRef<str>, N: AsRef<str>>(src: S, namespace: N) -> Result<()> {
 
     let stdout = String::from_utf8_lossy(&output.stdout[..]);
     let stderr = String::from_utf8_lossy(&output.stderr[..]);
-    println!("apply status: {}", output.status);
-    println!("apply output: {}", stdout);
-    println!("apply stderr: {}", stderr);
+    log::info!("apply status: {}", output.status);
+    log::info!("apply output: {}", stdout);
+    log::info!("apply stderr: {}", stderr);
 
     Ok(())
 }
@@ -21,8 +21,8 @@ pub fn delete<S: AsRef<str>, N: AsRef<str>>(name: S, namespace: N) -> Result<()>
     let tkn_delete = command::command_with_args("tkn", ["pipeline", "delete", name.as_ref(), "-n", namespace.as_ref()]);
     let output = command::pipe_run(&mut [confirm, tkn_delete])?;
     let output_str = String::from_utf8_lossy(&output.stdout);
-    println!("delete output: {}", output_str);
-    println!("delete stderr: {}", output_str);
+    log::info!("delete output: {}", output_str);
+    log::info!("delete stderr: {}", output_str);
 
     if output_str.contains("Pipelines deleted") {
         Ok(())
@@ -37,8 +37,8 @@ pub fn delete_run<S: AsRef<str>, N: AsRef<str>>(name: S, namespace: N) -> Result
     let tkn_delete = command::command_with_args("tkn", ["pipelinerun", "delete", name.as_ref(), "-n", namespace.as_ref()]);
     let output = command::pipe_run(&mut [confirm, tkn_delete])?;
     let output_str = String::from_utf8_lossy(&output.stdout);
-    println!("delete output: {}", output_str);
-    println!("delete stderr: {}", output_str);
+    log::info!("delete output: {}", output_str);
+    log::info!("delete stderr: {}", output_str);
 
     //Are you sure you want to delete all PipelineRuns in namespace "train" (y/n): All PipelineRuns(Completed) deleted in namespace "train"
     if output_str.contains("All PipelineRuns(Completed) deleted in namespace ") {
@@ -54,9 +54,9 @@ pub fn list(namespace: &str) -> Result<Vec<String>> {
     let output = command::pipe_run(&mut [pipelines, jq])?;
     let stdout = String::from_utf8_lossy(&output.stdout[..]);
     let stderr = String::from_utf8_lossy(&output.stderr[..]);
-    println!("pipeline list status: {}", output.status);
-    println!("pipeline list output: {}", stdout);
-    println!("pipeline list stderr: {}", stderr);
+    log::info!("pipeline list status: {}", output.status);
+    log::info!("pipeline list output: {}", stdout);
+    log::info!("pipeline list stderr: {}", stderr);
 
     Ok(stdout.trim().split("\n").map(|v|String::from(v)).collect())
 }
@@ -72,8 +72,8 @@ pub fn run(id: &str, namespace: &str, params: &[&str]) -> Result<String> {
     let output = tkn.output()?;
     let stdout_str = command::stringfy(&output.stdout);
     let stderr_str = command::stringfy(&output.stderr);
-    println!("### stdout of run pipeline:\n{}", stdout_str);
-    println!("### stderr of run pipeline:\n{}", stderr_str);
+    log::info!("### stdout of run pipeline:\n{}", stdout_str);
+    log::info!("### stderr of run pipeline:\n{}", stderr_str);
     let ok_msg = "PipelineRun started: ";
     if stdout_str.starts_with(ok_msg) { // OK
         let mut pipeline_id = &stdout_str[ok_msg.len()..];
@@ -87,14 +87,14 @@ pub fn run(id: &str, namespace: &str, params: &[&str]) -> Result<String> {
 }
 
 pub fn logs(run_name: &str, namespace: &str) -> Result<String> {
-    println!("### logs command: tkn pipelinerun logs {} -n {}", run_name, namespace);
+    log::info!("### logs command: tkn pipelinerun logs {} -n {}", run_name, namespace);
     let mut logs = command::command_with_args("tkn", ["pipelinerun", "logs", run_name, "-n", namespace]); 
     let output = logs.output()?;
     let stdout = String::from_utf8_lossy(&output.stdout[..]);
     let stderr = String::from_utf8_lossy(&output.stderr[..]);
-    println!("pipeline logs status: {}", output.status);
-    println!("pipeline logs output: {}", stdout);
-    println!("pipeline logs stderr: {}", stderr);
+    log::info!("pipeline logs status: {}", output.status);
+    log::info!("pipeline logs output: {}", stdout);
+    log::info!("pipeline logs stderr: {}", stderr);
 
     Ok(stdout.to_string())
 }
@@ -104,9 +104,9 @@ pub fn pipeline_run_stats(run_name: &str, namespace: &str) -> Result<String> {
     let jq_status = command::command_with_args("jq", ["-r", ".status.conditions|.[].reason"]);
     let output = command::pipe_run(&mut [pipeline_run_describe, jq_status])?;
     let output_text = String::from_utf8_lossy(&output.stdout);
-    println!("pipeline logs status: {}", output.status);
-    println!("pipeline logs output: {}", output_text);
-    println!("pipeline logs stderr: {}", String::from_utf8_lossy(&output.stderr[..]));
+    log::info!("pipeline logs status: {}", output.status);
+    log::info!("pipeline logs output: {}", output_text);
+    log::info!("pipeline logs stderr: {}", String::from_utf8_lossy(&output.stderr[..]));
     Ok(output_text.trim_end_matches("\n").to_string())
 }
 
