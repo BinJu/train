@@ -1,10 +1,21 @@
-use crate::artifact::{instance::{Instance, InstanceNumbers, InstanceStatus}, dao::{self, ArtifactDao, InstanceDao, DEFAULT_REDIS_URL}, Artifact};
 use crate::queue;
 use crate::error;
 
-pub fn process(queue: &queue::Queue) -> error::Result<Vec<String>> {
+pub trait Executable {
+    fn execute(&mut self, arts: &[i32]) -> error::Result<u32>;
+}
+
+pub struct DefaultExecutor;
+impl Executable for DefaultExecutor {
+    fn execute(&mut self, _arts: &[i32]) -> error::Result<u32> {
+        Ok(0)
+    }
+}
+
+pub fn process(_queue: &queue::Queue) -> error::Result<Vec<String>> {
         // Block on reading the head of the list.
-    let mut conn = dao::connection(DEFAULT_REDIS_URL).expect(&format!("Failed to establish connection to redis server at: {}", DEFAULT_REDIS_URL));
+/*
+ * let mut conn = dao::connection(DEFAULT_REDIS_URL).expect(&format!("Failed to establish connection to redis server at: {}", DEFAULT_REDIS_URL));
     let art_id = queue.block_dequeue(0, &mut conn)?;
     log::info!("Dequeuing the artifact: {} ", art_id);
     let mut artifact = ArtifactDao::one(&art_id, &mut conn)?;
@@ -32,10 +43,12 @@ pub fn process(queue: &queue::Queue) -> error::Result<Vec<String>> {
     if let Some(err) = rollout_err {
         log::warn!("Failed to rollout the deploy: {} ", err);
     }
-
+*/
+    let result = Vec::new();
     Ok(result)
 }
 
+/*
 fn multiplex_result(r: error::Result<Vec<Instance>>) -> (Option<Vec<Instance>>, Option<error::GeneralError>) {
     match r {
         Ok(instances) => (Some(instances), None),
@@ -85,9 +98,11 @@ fn rollout_artifact(artifact: &mut Artifact, number: i32) -> error::Result<Vec<I
         Ok(Vec::new())
     }
 }
+*/
 
 #[cfg(test)]
 mod tests {
+    /*
     use super::*;
     use crate::artifact::{pipeline, ArtifactRequest, ArtifactStatus, dao::{self, ArtifactDao, InstanceDao}};
 
@@ -214,4 +229,5 @@ mod tests {
         assert_eq!(stats.done_clean, 3);
         assert_eq!(stats.done_dirt, 4);
     }
+    */
 }

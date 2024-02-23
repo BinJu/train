@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use actix_web::HttpResponse;
+
 pub type Result<T> = std::result::Result<T, GeneralError>;
 
 #[derive(Debug)]
@@ -12,7 +14,8 @@ pub enum GeneralError {
     PipelineError(String),
     RedisError(redis::RedisError),
     SerdeJsonError(serde_json::Error),
-    SerdeYamlError(serde_yaml::Error)
+    SerdeYamlError(serde_yaml::Error),
+    DBError(diesel::result::Error)
 }
 
 #[inline]
@@ -67,6 +70,23 @@ impl From<&str> for GeneralError {
     }
 }
 
+impl From<diesel::result::Error> for GeneralError {
+    fn from(value: diesel::result::Error) -> Self {
+        GeneralError::DBError(value)
+    }
+}
+
+impl actix_web::error::ResponseError for GeneralError {
+    fn status_code(&self) -> actix_web::http::StatusCode {
+        actix_web::http::StatusCode::from_u16(500).unwrap()
+    }
+
+    fn error_response(&self) -> HttpResponse<actix_http::body::BoxBody> {
+        //TODO: return true response
+        HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR).body(format!("{}", self)) 
+    }
+}
+
 impl Display for GeneralError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
@@ -78,7 +98,8 @@ impl Display for GeneralError {
             Self::PipelineError(desc) => f.write_fmt(format_args!("PipelineError: {}", desc))?,
             Self::RedisError(desc) => f.write_fmt(format_args!("RedisError: {}", desc))?,
             Self::SerdeJsonError(err) => f.write_fmt(format_args!("SerdeJsonError: {}", err))?,
-            Self::SerdeYamlError(err) => f.write_fmt(format_args!("SerdeYamlError: {}", err))?
+            Self::SerdeYamlError(err) => f.write_fmt(format_args!("SerdeYamlError: {}", err))?,
+            Self::DBError(err) => f.write_fmt(format_args!("DB Error: {}", err))?
         };
         Ok(())
     }

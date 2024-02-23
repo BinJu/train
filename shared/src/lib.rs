@@ -1,24 +1,69 @@
 pub mod error;
-pub mod artifact;
-pub mod resource;
 pub mod queue;
 pub mod scheduler;
+pub mod bo;
 mod command;
 
 #[cfg(test)]
 mod tests {
-    use crate::artifact::dao::ArtifactDao;
-    use crate::artifact::{ArtifactRequest, Artifact};
+    use crate::bo::dao::{TeamDao, ArtifactDao};
+    use crate::bo::artifact::ArtifactRequest;
+    use diesel::pg::PgConnection;
+    use crate::bo::dao::model;
+    use crate::error;
     // POST   /api/v1/art with body in json as request
+
+    fn run_case(conn: &mut PgConnection, case: impl FnOnce(&mut PgConnection) -> error::Result<()>)-> error::Result<()>  {
+        let team = model::Team {
+            id: None,
+            name: "Team C".to_owned(),
+            token: "234567".to_owned(),
+            desp: None
+        };
+        match TeamDao::create(conn, team) {
+            Ok(team_id) => {
+                case(conn).expect("Fail to run the test case");
+            },
+            Err(err) => {
+                println!("Failed to create team: {:?}", err);
+                panic!();
+            }
+        };
+        Ok(())
+    }
+
     #[test]
     fn test_artifact_creation() {
-        let request = r#"{"name":"opsman-lib","total":1,"target":1,"refs":[{"name":"mock"}],"build":{"tasks":[{"name":"opsman-task1","spec":{"steps":[{"name":"step-collectdata","image":"ubuntu","script":"echo $(params.name)\necho with inputs: art_id: $(params.art_id)\tinst_id: $(params.inst_id) Done\nls -l /var\necho secret aws-route53\nls -l /var/aws-route53\ncat /var/aws-route53/user_id\ncat var/aws-route53/secret\necho secret pivnet\nls -l /var/pivnet\necho account gcp-environment\nls -l /var/gcp-environment","volumeMounts":[{"name":"aws-route53","mountPath":"/var/aws-route53"},{"name":"pivnet","mountPath":"/var/pivnet"},{"name":"gcp-environment","mountPath":"/var/gcp-environment"}]}],"params":[{"name":"name","type":"string","description":"The username"},{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"volumes":[{"name":"aws-route53","secret":{"secretName":"sec-$(params.art_id)-aws-route53"}},{"name":"pivnet","secret":{"secretName":"sec-$(params.art_id)-pivnet"}},{"name":"gcp-environment","secret":{"secretName":"acnt-$(params.art_id)-$(params.inst_id)-gcp-environment"}}]},"paramValues":[{"name":"name","value":"John"},{"name":"art_id","value":"$(params.art_id)"},{"name":"inst_id","value":"$(params.inst_id)"}]}],"params":[{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"secrets":[{"name":"aws-route53"},{"name":"pivnet"}],"accounts":[{"name":"gcp-environment"}]},"clean":{"tasks":[{"name":"task1","spec":{"steps":[{"name":"collect-data","image":"ubuntu","script":"echo $(params.name)\necho with art_id:"}],"params":[{"name":"name","type":"string","description":"The username"}]},"paramValues":[{"name":"name","value":"John"}]}],"params":[{"name":"art_id","type":"string","description":"The artifact ID"},{"name":"inst_id","type":"string","description":"The instance ID"}],"secrets":[{"name":"aws-route53"},{"name":"pivnet"}],"accounts":[{"name":"gcp-environment"}]}}"#;
-        let artifact_request: ArtifactRequest = serde_json::from_str(request).expect("failed to deserialize the rollout request");
-        artifact_request.validate().expect("Failed to validate the request");
-        let artifact = Artifact::try_from(artifact_request).expect("failed to deserialize the request to artifact");
-        let mut conn = redis::Client::open("redis://127.0.0.1").unwrap().get_connection().unwrap();
-        ArtifactDao::delete("opsman-lib", &mut conn).expect("Failed to delete artifact:opsman-lib from DB");
-        ArtifactDao::save(artifact, &mut conn).expect("Failed to save artifact");
+        crate::bo::tests::Environment::init(true, |conn| {
+            run_case(conn, |conn| {
+                let file = std::fs::File::open("../asset/sample-artifact-request.json").unwrap();
+
+                let mut artifact_request: ArtifactRequest = serde_json::from_reader(file).expect("Fail to parse the json ArtifactRequest");
+                artifact_request.name = "test-lib-artifact-creation".to_owned();
+                let team = TeamDao::find_team_by_token(conn, "234567").expect("Unable to find the team witht the token 123456");
+                let artifact = model::Artifact {
+                    id: None,
+                    name: artifact_request.name,
+                    total: artifact_request.total,
+                    target: artifact_request.target,
+                    team_id: team.id.expect("Null team Id"),
+                    build: serde_json::to_value(artifact_request.build).expect("failed to convert artifact_request.build to serde_json.value"),
+                    clean: Some(serde_json::to_value(artifact_request.clean).expect("failed to convert artifact_request.build to serde_json.value"))
+                };
+                let result = ArtifactDao::create(conn, artifact);
+                match result {
+                    Err(err) => {
+                        println!("Encountered err: {err}");
+                        panic!();
+                    },
+                    Ok(data) => {
+                        assert!(data.is_positive());
+                    }
+                };
+                Ok(())
+                
+            })
+        }).unwrap();
     }
 
     #[test]

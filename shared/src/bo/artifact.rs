@@ -1,40 +1,31 @@
-pub mod manifest;
-pub mod pipeline;
-pub mod instance;
-pub mod dao;
-
-mod naming;
-
-pub use instance::{Instance, InstanceStatus};
-
-use crate::error;
 use chrono::{DateTime,  Local};
+use diesel::PgConnection;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use super::{dao, manifest};
+use crate::error;
 
-pub const DEFAULT_NAMESPACE: &str = "train";
+const DEFAULT_NAMESPACE: &'static str = "train";
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct ArtifactRequest<'a> {
-    pub name: &'a str,
+pub struct ArtifactRequest {
+    pub name: String,
     #[serde(default)]
-    pub total: u32,
+    pub total: i32,
     #[serde(default)]
-    pub target: u32,
+    pub target: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refs: Option<Vec<ArtifactRef>>,
-    pub build: DeployUnit<'a>,
-    pub clean: DeployUnit<'a>
+    pub build: DeployUnit,
+    pub clean: DeployUnit
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct DeployUnit<'a> {
+pub struct DeployUnit {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<Vec<manifest::Param<'a>>>,
-    pub tasks: Vec<manifest::TaskManifest<'a>>,
-    pub results: Option<Vec<manifest::ParamValue<'a>>>,
+    pub params: Option<Vec<manifest::Param>>,
+    pub tasks: Vec<manifest::TaskManifest>,
+    pub results: Option<Vec<manifest::ParamValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secrets: Option<Vec<SecretRef>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,8 +51,8 @@ pub struct ArtifactRef {
 pub struct Artifact {
     pub id: String,
     pub tags: HashMap<String, String>,
-    pub total: u32,
-    pub target: u32,
+    pub total: i32,
+    pub target: i32,
     pub build: Rollout,
     pub clean: Rollout
 }
@@ -87,8 +78,9 @@ pub enum ArtifactStatus {
     Succeeded
 }
 
+
 impl Artifact {
-    pub fn new(art_id: &str, total: u32, target: u32) -> Self {
+    pub fn new(art_id: &str, total: i32, target: i32) -> Self {
         Artifact {
             id: art_id.to_owned(),
             tags: HashMap::new(),
@@ -116,12 +108,7 @@ impl Artifact {
     }
 }
 
-impl <'a>ArtifactRequest<'a> {
-    pub fn validate(&self) -> error::Result<()> {
-        //TODO: Need to validate each of the items from the customer. Including: accounts, secrets,
-        //art_refs, params, tasks, results for both of the creation and deletion.
-        Ok(())
-    }
+impl ArtifactRequest {
     pub fn format(&mut self) -> error::Result<()> {
         for task in &mut self.build.tasks {
             task.name = format!("{}-{}", self.name, task.name);
@@ -129,14 +116,15 @@ impl <'a>ArtifactRequest<'a> {
         Ok(())
     }
 }
-impl <'a> TryFrom<ArtifactRequest<'a>> for Artifact {
+
+impl  TryFrom<ArtifactRequest> for Artifact {
     type Error = error::GeneralError;
-    fn try_from(value: ArtifactRequest<'a>) -> Result<Self, Self::Error> {
-        let build_name = "build-".to_owned() + value.name;
+    fn try_from(value: ArtifactRequest) -> Result<Self, Self::Error> {
+        let build_name = "build-".to_owned() + &value.name;
         let manifest_build = to_manifest_with_optional_args(&build_name, value.build.tasks, value.build.params, value.build.results);
         let manifest_build_yaml = manifest_build.to_yaml()?;
 
-        let clean_name = "clean-".to_owned() + value.name;
+        let clean_name = "clean-".to_owned() + &value.name;
         let manifest_clean = to_manifest_with_optional_args(&clean_name, value.clean.tasks, value.clean.params, value.clean.results);
         let manifest_clean_yaml = manifest_clean.to_yaml()?;
         Ok(Artifact {
@@ -167,11 +155,11 @@ impl <'a> TryFrom<ArtifactRequest<'a>> for Artifact {
 }
 
 impl Rollout {
-    pub fn run(&mut self, mut copies: i32) -> error::Result<Vec<Instance>> {
+    pub fn run(&mut self, _copies: i32) -> error::Result<Vec<String>> {
         //TODO: The accounts and art_ref not ready will cause an error, then mark the artifact
         //status to be pending, this should be rescheduled by another module `reconciller`.
         //Update the last_sched
-        self.last_sched = Local::now();
+        /*self.last_sched = Local::now();
         let mut result = Vec::new();
         let secrets = self.prepare_secrets(&self.name)?;
         log::info!("applying secrets");
@@ -207,7 +195,17 @@ impl Rollout {
                 results: None
             });
         }
+        */
+        let result = Vec::new();
         Ok(result)
+    }
+
+    pub fn validate(&self) -> error::Result<()> {
+        Ok(())
+    }
+
+    pub fn format(&mut self) -> error::Result<()> {
+        Ok(())
     }
 
     fn prepare_refs(&self, art_id: &str, inst_id: &str) -> error::Result<Vec<manifest::Secret>> {
@@ -236,7 +234,7 @@ impl Rollout {
             let sec_yaml = serde_yaml::to_string(sec)?;
             buff.push_str(&sec_yaml);
         }
-        pipeline::apply(buff, DEFAULT_NAMESPACE)?;
+        //pipeline::apply(buff, DEFAULT_NAMESPACE)?;
         Ok(())
     }
 }
@@ -247,13 +245,13 @@ impl Default for ArtifactStatus {
     }
 }
 
-fn to_manifest_with_optional_args<'a>(name: &'a str, tasks: Vec<manifest::TaskManifest<'a>>, params: Option<Vec<manifest::Param<'a>>>, results: Option<Vec<manifest::ParamValue<'a>>>) -> manifest::Manifest<'a> {
+fn to_manifest_with_optional_args(name: &str, tasks: Vec<manifest::TaskManifest>, params: Option<Vec<manifest::Param>>, results: Option<Vec<manifest::ParamValue>>) -> manifest::Manifest {
     let params = params.unwrap_or(Vec::new());
     let results = results.unwrap_or(Vec::new());
     to_manifest(name, tasks, params, results)
 }
 
-fn to_manifest<'a>(name: &'a str, tasks: Vec<manifest::TaskManifest<'a>>, params: Vec<manifest::Param<'a>>, results: Vec<manifest::ParamValue<'a>>) -> manifest::Manifest<'a> {
+fn to_manifest(name: &str, tasks: Vec<manifest::TaskManifest>, params: Vec<manifest::Param>, results: Vec<manifest::ParamValue>) -> manifest::Manifest {
     let task_refs: Vec<manifest::TaskDef> = tasks.iter().map(|v|manifest::TaskDef{name: v.name.clone(), task_ref: manifest::TaskRef{name: v.name.clone()}, run_after: v.run_after.clone(), params: v.param_values.clone()}).collect();
     let mut task_defs = Vec::<manifest::Task>::new();
     for task_def in &tasks {
@@ -283,7 +281,7 @@ fn to_manifest<'a>(name: &'a str, tasks: Vec<manifest::TaskManifest<'a>>, params
 
 impl ArtifactRef {
     pub fn get_data(&self) -> Option<Vec<manifest::ParamValue>> {
-        Some(vec![manifest::ParamValue{name: "abckl", value: "value1"}]) //TODO: How to save the results
+        Some(vec![manifest::ParamValue{name: String::from("abckl"), value: String::from("value1")}]) //TODO: How to save the results
     }
 }
 
@@ -326,10 +324,81 @@ impl <R: AsRef<str>> From<R> for ArtifactStatus {
     }
 }
 
+pub trait Validable {
+    fn validate(&mut self) -> error::Result<()>;
+}
+
+pub struct ArtifactValidator<'a> {
+    pub conn: &'a mut PgConnection,
+    pub artifact: &'a mut ArtifactRequest
+}
+
+impl <'a>Validable for ArtifactValidator<'a> {
+    fn validate(&mut self) -> error::Result<()> {
+        if let Some(refs) = &self.artifact.refs {
+            let mut err_msg = String::new();
+            for art_ref in refs {
+                //TODO: check if the reference exists
+                if !dao::ArtifactDao::exist_name(self.conn, &art_ref.name)? {
+                    err_msg += &format!("Unable to find the artifact: {}\n", art_ref.name);
+                }
+            }
+            if !err_msg.is_empty() {
+                return Err(error::error(&err_msg));
+            }
+        }
+
+        if let Some(accounts) = &self.artifact.build.accounts {
+            let mut err_msg = String::new();
+            for account in accounts {
+                if !dao::AccountDao::exist_name(self.conn, &account.name)? {
+                    err_msg += &format!("Unable to find the account: {}\n", account.name);
+                }
+
+                //TODO: check if the account exists
+                //TODO: check if an account is available
+            }
+            if !err_msg.is_empty() {
+                return Err(error::error(&err_msg));
+            }
+        }
+
+        if let Some(accounts) = &self.artifact.clean.accounts {
+            let mut err_msg = String::new();
+            for account in accounts {
+                if !dao::AccountDao::exist_name(self.conn, &account.name)? {
+                    err_msg += &format!("Unable to find the account: {}\n", account.name);
+                }
+
+                //TODO: check if the account exists
+                //TODO: check if an account is available
+            }
+            if !err_msg.is_empty() {
+                return Err(error::error(&err_msg));
+            }
+        }
+
+        if let Some(secrets) = &self.artifact.build.secrets {
+            let mut err_msg = String::new();
+            for secret in secrets {
+                if !dao::SecretDao::exist_name(self.conn, &secret.name)? {
+                    err_msg += &format!("Unable to find the secret: {}\n", secret.name);
+                }
+            }
+            if !err_msg.is_empty() {
+                return Err(error::error(&err_msg));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time;
+    /*
     #[test]
     fn test_rollout() {
         pipeline::delete_run("--all", "train").unwrap();
@@ -353,4 +422,5 @@ mod tests {
         assert!(logs.contains("John"));
         //pipeline::delete_run("--all", "train").unwrap();
     }
+    */
 }

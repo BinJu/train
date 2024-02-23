@@ -5,16 +5,15 @@ use std::collections::HashMap;
 pub const TEKTON_DEV_V1: &str = "tekton.dev/v1";
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct TaskManifest<'a> {
+pub struct TaskManifest {
     pub name: String,
-    pub spec: TaskSpec<'a>,
+    pub spec: TaskSpec,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "paramValues", deserialize = "paramValues"))]
-    pub param_values: Option<Vec<ParamValue<'a>>>,
+    pub param_values: Option<Vec<ParamValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "runAfter", deserialize = "runAfter"))]
-    pub run_after: Option<Vec<&'a str>>
+    pub run_after: Option<Vec<String>>
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -24,7 +23,7 @@ pub struct Task<'a> {
     pub api_version: &'a str,
     pub kind: &'a str,
     pub metadata: Metadata,
-    pub spec: TaskSpec<'a>
+    pub spec: TaskSpec
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -33,106 +32,104 @@ pub struct Metadata {
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct TaskSpec<'a> {
+pub struct TaskSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub results: Option<Vec<TaskResult<'a>>>,
+    pub results: Option<Vec<TaskResult>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub params : Option<Vec<Param<'a>>>,
+    pub params : Option<Vec<Param>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "stepTemplate", deserialize = "stepTemplate"))]
-    pub step_template: Option<StepTemplate<'a>>,
+    pub step_template: Option<StepTemplate>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub volumes: Option<Vec<Volume<'a>>>,
-    pub steps: Vec<TaskStep<'a>>,
+    pub volumes: Option<Vec<Volume>>,
+    pub steps: Vec<TaskStep>,
     #[serde(skip_serializing_if = "Option::is_none")]
     // TODO:
     // securityContext:
     //  privileged: true
-    pub sidecars: Option<Vec<TaskStep<'a>>>
+    pub sidecars: Option<Vec<TaskStep>>
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct StepTemplate<'a> {
-    pub env: Vec<TaskStepEnvKV<'a>>
+pub struct StepTemplate {
+    pub env: Vec<TaskStepEnvKV>
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct Volume<'a> {
-    pub name: &'a str,
+pub struct Volume {
+    pub name: String,
     #[serde(flatten)]
-    pub volume_type: VolumeType<'a>
+    pub volume_type: VolumeType
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub enum VolumeType<'a> {
+pub enum VolumeType {
     #[serde(rename(serialize = "hostPath", deserialize = "hostPath"))]
-    HostPath(HostPath<'a>),
+    HostPath(HostPath),
     #[serde(rename(serialize = "emptyDir", deserialize = "emptyDir"))]
-    EmptyDir(&'a str),
+    EmptyDir(String),
     #[serde(rename(serialize = "configMap", deserialize = "configMap"))]
-    ConfigMap(ConfigMapRef<'a>),
+    ConfigMap(ConfigMapRef),
     #[serde(rename(serialize = "secret", deserialize = "secret"))]
-    Secret(SecretRef<'a>)
+    Secret(SecretRef)
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ConfigMapRef<'a> {
-    pub name: &'a str
+pub struct ConfigMapRef {
+    pub name: String
 }
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct HostPath<'a> {
-    path: &'a str,
+pub struct HostPath {
+    path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "type", deserialize = "type"))]
-    tpe: Option<&'a str>
+    tpe: Option<String>
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct SecretRef<'a> {
+pub struct SecretRef {
     #[serde(rename(serialize = "secretName", deserialize = "secretName"))]
-    secret_name: &'a str
+    secret_name: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct TaskResult<'a> {
-    pub name: &'a str,
-    pub description: &'a str
+pub struct TaskResult {
+    pub name: String,
+    pub description: String
 }
 
 // TODO: Add environment and step template
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct TaskStep<'a> {
-    pub name: &'a str,
-    pub image: &'a str,
+pub struct TaskStep {
+    pub name: String,
+    pub image: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub command: Option<&'a str>,
+    pub command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<Vec<&'a str>>,
+    pub args: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<Vec<TaskStepEnvKV<'a>>>,
+    pub env: Option<Vec<TaskStepEnvKV>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<&'a str>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "volumeMounts", deserialize = "volumeMounts"))]
-    pub volume_mounts: Option<Vec<VolumeMount<'a>>>,
+    pub volume_mounts: Option<Vec<VolumeMount>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "computeResource", deserialize = "computeResource"))]
-    pub compute_resources: Option<ComputeResource<'a>>,
+    pub compute_resources: Option<ComputeResource>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<&'a str>, //e.g.: 5s
+    pub timeout: Option<String>, //e.g.: 5s
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "onError", deserialize = "onError"))]
-    pub on_error: Option<&'a str>, //continue or stopAndFail
+    pub on_error: Option<String>, //continue or stopAndFail
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "stdoutConfig", deserialize = "stdoutConfig"))]
-    pub stdout_config: Option<OutputPath<'a>>,
+    pub stdout_config: Option<OutputPath>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "stderrConfig", deserialize = "stderrConfig"))]
-    pub stderr_config: Option<OutputPath<'a>>,
+    pub stderr_config: Option<OutputPath>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "securityContext", deserialize = "securityContext"))]
     pub security_context: Option<SecurityContext>
@@ -144,66 +141,65 @@ pub struct SecurityContext {
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct TaskStepEnvKV<'a> {
-    pub name: &'a str,
+pub struct TaskStepEnvKV {
+    pub name: String,
     #[serde(flatten)]
-    pub value: EnvValue<'a>
+    pub value: EnvValue
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub enum EnvValue<'a> {
+pub enum EnvValue {
     #[serde(rename(serialize = "value", deserialize = "value"))]
-    Value(&'a str),
+    Value(String),
     #[serde(rename(serialize = "sercretKeyRef", deserialize = "secretKeyRef"))]
-    SecretKeyRef(SecretKeyRef<'a>)
+    SecretKeyRef(SecretKeyRef)
 }
 
-impl <'a>Default for EnvValue<'a> {
+impl <'a>Default for EnvValue {
     fn default() -> Self {
-        EnvValue::Value("")
+        EnvValue::Value(String::new())
     }
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct SecretKeyRef<'a> {
-    pub name: &'a str,
-    pub key: &'a str
+pub struct SecretKeyRef {
+    pub name: String,
+    pub key: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct ComputeResource<'a> {
-    pub requests: ResourceDescription<'a>,
-    pub limits: ResourceDescription<'a>
+pub struct ComputeResource {
+    pub requests: ResourceDescription,
+    pub limits: ResourceDescription
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ResourceDescription<'a> {
-    cpu: &'a str,
-    mem: &'a str
+pub struct ResourceDescription {
+    cpu: String,
+    mem: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct OutputPath<'a> {
-    path: &'a str
+pub struct OutputPath {
+    path: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct VolumeMount<'a> {
-    pub name: &'a str,
+pub struct VolumeMount {
+    pub name: String,
     #[serde(rename(serialize = "mountPath", deserialize = "mountPath"))]
-    pub mount_path: &'a str
+    pub mount_path: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct Param<'a> {
-    pub name: &'a str,
+pub struct Param {
+    pub name: String,
     #[serde(rename(serialize = "type", deserialize = "type"))]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tpe: Option<&'a str>,
-    pub description: &'a str,
+    pub tpe: Option<String>,
+    pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<&'a str>,
+    pub default: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -212,30 +208,28 @@ pub struct Pipeline<'a> {
     pub api_version: &'a str,
     pub kind: &'a str,
     pub metadata: Metadata,
-    pub spec: PipelineSpec<'a>
+    pub spec: PipelineSpec
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct PipelineSpec<'a> {
+pub struct PipelineSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub params : Option<Vec<Param<'a>>>,
+    pub params : Option<Vec<Param>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub results: Option<Vec<ParamValue<'a>>>,
-    pub tasks: Vec<TaskDef<'a>>
+    pub results: Option<Vec<ParamValue>>,
+    pub tasks: Vec<TaskDef>
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "'de: 'a"))]
-pub struct TaskDef<'a> {
+pub struct TaskDef {
     pub name: String,
     #[serde(rename(serialize = "taskRef", deserialize = "taskRef"))]
     pub task_ref: TaskRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename(serialize = "runAfter", deserialize = "runAfter"))]
-    pub run_after: Option<Vec<&'a str>>,
+    pub run_after: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<Vec<ParamValue<'a>>>,
+    pub params: Option<Vec<ParamValue>>,
 
 }
 
@@ -245,9 +239,9 @@ pub struct TaskRef {
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ParamValue<'a> {
-    pub name: &'a str,
-    pub value: &'a str
+pub struct ParamValue {
+    pub name: String,
+    pub value: String
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -275,9 +269,9 @@ pub struct SecretMetadata<'a> {
     pub namespace: &'a str
 }
 
-impl <'a>Default for VolumeType<'a> {
+impl Default for VolumeType {
     fn default() -> Self {
-        VolumeType::EmptyDir("{}")
+        VolumeType::EmptyDir(String::from("{}"))
     }
 }
 

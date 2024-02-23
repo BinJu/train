@@ -1,0 +1,65 @@
+{
+  "name": "opsman-main",
+  "total": 1,
+  "target": 1,
+  "refs": [
+    {
+      "name": "mock"
+    }
+  ],
+  "team_token": "123456",
+  "clean": {
+    "tasks": [
+      {
+        "name": "task1",
+        "spec": {
+          "steps": [
+            {
+              "name": "collect-data",
+              "image": "ubuntu",
+              "script": "echo $(params.name)\necho with art_id:"
+            }
+          ],
+          "params": [
+            {
+              "name": "name",
+              "type": "string",
+              "description": "The username"
+            }
+          ]
+        },
+        "paramValues": [
+          {
+            "name": "name",
+            "value": "John"
+          }
+        ]
+      }
+    ],
+    "params": [
+      {
+        "name": "art_id",
+        "type": "string",
+        "description": "The artifact ID"
+      },
+      {
+        "name": "inst_id",
+        "type": "string",
+        "description": "The instance ID"
+      }
+    ],
+    "secrets": [
+      {
+        "name": "aws-route53"
+      },
+      {
+        "name": "pivnet"
+      }
+    ],
+    "accounts": [
+      {
+        "name": "gcp-environment"
+      }
+    ]
+  }
+}

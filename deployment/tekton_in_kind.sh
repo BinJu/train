@@ -2,8 +2,8 @@
 
 # This file is forked from https://github.com/tektoncd/plumbing/blob/main/hack/tekton_in_kind.sh.
 # The additional features of this file are
-- To map the port 80 of the kind cluster to localhost.
-- Add NGINX ingress to the cluster
+# To map the port 80 of the kind cluster to localhost.
+# Add NGINX ingress to the cluster
 
 set -e -o pipefail
 
@@ -107,9 +107,6 @@ nodes:
       hostPort: 8080
     - containerPort: 443
       hostPort: 8443
-    extraMounts:
-    - hostPath: /home/binj/workspace/kind_volume/redis
-      containerPath: /redis-data
   - role: worker
   - role: worker
 featureGates:
